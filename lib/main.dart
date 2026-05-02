@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:ui';
+import 'Report_Screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -38,11 +39,7 @@ class _ScanScreenState extends State<ScanScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            icon,
-            size: 35,
-            color: isActive ? Colors.blue : Colors.grey,
-          ),
+          Icon(icon, size: 35, color: isActive ? Colors.blue : Colors.grey),
           const SizedBox(height: 3),
           Text(
             label,
@@ -59,12 +56,11 @@ class _ScanScreenState extends State<ScanScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: const Center(
-        child: Text(
-          "Home Screen",
-          style: TextStyle(color: Colors.white),
-        ),
-      ),
+      body: selectedIndex == 2
+          ? const ReportScreen()
+          : const Center(
+              child: Text("Home Screen", style: TextStyle(color: Colors.white)),
+            ),
 
       bottomNavigationBar: Padding(
         padding: const EdgeInsets.only(bottom: 20, left: 16, right: 16),
@@ -116,7 +112,7 @@ class _ScanScreenState extends State<ScanScreen> {
                   children: [
                     GestureDetector(
                       onTap: () {
-                        print("Report clicked");
+                        setState(() => selectedIndex = 2);
                       },
                       child: Container(
                         height: 66,
@@ -135,10 +131,7 @@ class _ScanScreenState extends State<ScanScreen> {
                     const SizedBox(height: 4),
                     const Text(
                       "Report",
-                      style: TextStyle(
-                        color: Colors.grey,
-                        fontSize: 11,
-                      ),
+                      style: TextStyle(color: Colors.grey, fontSize: 11),
                     ),
                   ],
                 ),
