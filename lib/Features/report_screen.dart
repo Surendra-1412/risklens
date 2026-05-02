@@ -28,9 +28,9 @@ class _ReportScreenState extends State<ReportScreen> {
     if (!mounted) return;
 
     if (images.length + selectedImages.length > 10) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Max 10 images allowed")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Max 10 images allowed")),
+      );
       return;
     }
 
@@ -55,9 +55,9 @@ class _ReportScreenState extends State<ReportScreen> {
       return;
     }
 
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text("Scam Report Submitted")));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Scam Report Submitted")),
+    );
 
     _controller.clear();
     setState(() {
@@ -68,26 +68,44 @@ class _ReportScreenState extends State<ReportScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      appBar: AppBar(title: const Text("Report Scam"), centerTitle: true),
+      appBar: AppBar(
+        title: const Text("Report Scam"),
+        centerTitle: true,
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               "Report a Scam",
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white : Colors.black,
+              ),
             ),
             const SizedBox(height: 20),
 
+            /// 📝 DESCRIPTION FIELD
             TextField(
               controller: _controller,
               maxLines: 4,
+              style: TextStyle(
+                color: isDark ? Colors.white : Colors.black,
+              ),
               decoration: InputDecoration(
                 hintText: "Describe the scam...",
+                hintStyle: TextStyle(
+                  color: isDark ? Colors.grey : Colors.black54,
+                ),
                 filled: true,
-                fillColor: Colors.white.withValues(alpha: 0.05),
+                fillColor: isDark
+                    ? Colors.white.withOpacity(0.05)
+                    : Colors.grey.withOpacity(0.15),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide.none,
@@ -97,9 +115,16 @@ class _ReportScreenState extends State<ReportScreen> {
 
             const SizedBox(height: 20),
 
+            /// 📂 CATEGORY DROPDOWN
             DropdownButtonFormField<String>(
               value: selectedCategory,
-              hint: const Text("Select category"),
+              dropdownColor: isDark ? Colors.grey[900] : Colors.white,
+              hint: Text(
+                "Select category",
+                style: TextStyle(
+                  color: isDark ? Colors.grey : Colors.black54,
+                ),
+              ),
               items: const [
                 DropdownMenuItem(value: "Fraud", child: Text("Fraud")),
                 DropdownMenuItem(value: "Phishing", child: Text("Phishing")),
@@ -110,9 +135,14 @@ class _ReportScreenState extends State<ReportScreen> {
                   selectedCategory = value;
                 });
               },
+              style: TextStyle(
+                color: isDark ? Colors.white : Colors.black,
+              ),
               decoration: InputDecoration(
                 filled: true,
-                fillColor: Colors.white.withValues(alpha: 0.05),
+                fillColor: isDark
+                    ? Colors.white.withOpacity(0.05)
+                    : Colors.grey.withOpacity(0.15),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide.none,
@@ -122,13 +152,24 @@ class _ReportScreenState extends State<ReportScreen> {
 
             const SizedBox(height: 20),
 
+            /// 🖼 IMAGE BUTTON
             ElevatedButton(
               onPressed: pickImages,
+              style: ElevatedButton.styleFrom(
+                backgroundColor:
+                    isDark ? Colors.grey[800] : Colors.grey[300],
+                foregroundColor:
+                    isDark ? Colors.white : Colors.black,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
               child: const Text("Upload Images (Max 10)"),
             ),
 
             const SizedBox(height: 10),
 
+            /// 📸 IMAGE PREVIEW
             if (selectedImages.isNotEmpty)
               SizedBox(
                 height: 90,
@@ -177,13 +218,22 @@ class _ReportScreenState extends State<ReportScreen> {
 
             const SizedBox(height: 24),
 
+            /// 🚨 SUBMIT BUTTON
             SizedBox(
               width: double.infinity,
               height: 50,
               child: ElevatedButton(
                 onPressed: submitReport,
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                child: const Text("Submit Report"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                child: const Text(
+                  "Submit Report",
+                  style: TextStyle(fontSize: 16),
+                ),
               ),
             ),
           ],
