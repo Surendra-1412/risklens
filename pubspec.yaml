@@ -11,10 +11,13 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  moralis: ^0.0.3+4
+  intl: ^0.20.2
 
   cupertino_icons: ^1.0.8
   http: ^0.13.6
   image_picker: ^1.0.7
+  fl_chart: ^0.69.0
 
 dev_dependencies:
   flutter_test:
@@ -24,8 +27,13 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - icon.png
 
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "logo.png"
+  image_path: "launcher.png"
+  adaptive_icon_background: "#87CEEB"
+  adaptive_icon_foreground: "launcher.png"
+  remove_alpha_ios: true

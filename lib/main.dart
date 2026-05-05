@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:ui';
-import 'Features/report_screen.dart'; // ✅ FIXED import
+
+import 'Features/ledger_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -28,13 +29,11 @@ class _MyAppState extends State<MyApp> {
       debugShowCheckedModeBanner: false,
       theme: ThemeData.light(),
       darkTheme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xFF202123),
+        scaffoldBackgroundColor: Colors.black,
+        canvasColor: Colors.black,
       ),
       themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
-      home: ScanScreen(
-        toggleTheme: toggleTheme,
-        isDarkMode: isDarkMode,
-      ),
+      home: ScanScreen(toggleTheme: toggleTheme, isDarkMode: isDarkMode),
     );
   }
 }
@@ -61,18 +60,54 @@ class _ScanScreenState extends State<ScanScreen> {
 
     return GestureDetector(
       onTap: () => setState(() => selectedIndex = index),
+      behavior: HitTestBehavior.opaque,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 35, color: isActive ? Colors.blue : Colors.grey),
-          const SizedBox(height: 3),
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            decoration: BoxDecoration(
+              color: isActive
+                  ? Colors.blue.withOpacity(0.2)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Icon(
+              icon,
+              size: 36,
+              color: isActive ? Colors.blue : Colors.grey,
+            ),
+          ),
+          const SizedBox(height: 4),
           Text(
             label,
             style: TextStyle(
-              fontSize: 15,
-              fontWeight:
-                  isActive ? FontWeight.bold : FontWeight.normal,
+              fontSize: 17,
+              fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
               color: isActive ? Colors.blue : Colors.grey,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget reportItem() {
+    return GestureDetector(
+      onTap: () => setState(() => selectedIndex = 2),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            height: 70,
+            width: 70,
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              image: DecorationImage(
+                image: AssetImage('icon.png'),
+                fit: BoxFit.cover,
+              ),
             ),
           ),
         ],
@@ -84,139 +119,68 @@ class _ScanScreenState extends State<ScanScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    final screens = [
+      Center(
+        child: Text(
+          "Home Screen",
+          style: TextStyle(color: isDark ? Colors.white : Colors.black),
+        ),
+      ),
+      const LedgerScreen(),
+      const Center(child: Text("Report Screen")),
+      const Center(child: Text("Pro Screen")),
+      const Center(child: Text("News Screen")),
+    ];
+
     return Scaffold(
-      body: selectedIndex == 2
-          ? const ReportScreen()
-          : Stack(
-              children: [
-                /// HOME SCREEN
-                if (selectedIndex == 0)
-                  Center(
-                    child: Text(
-                      "Home Screen",
-                      style: TextStyle(
-                        color:
-                            isDark ? Colors.white : Colors.black,
-                      ),
-                    ),
-                  ),
-
-                /// THEME BUTTON
-                if (selectedIndex == 0)
-                  Positioned(
-                    top: 50,
-                    left: 16,
-                    child: GestureDetector(
-                      onTap: widget.toggleTheme,
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? Colors.grey.withOpacity(0.2)
-                              : Colors.black.withOpacity(0.1),
-                          borderRadius:
-                              BorderRadius.circular(12),
-                        ),
-                        child: Icon(
-                          widget.isDarkMode
-                              ? Icons.light_mode
-                              : Icons.dark_mode,
-                          size: 28,
-                          color: Theme.of(context)
-                              .iconTheme
-                              .color,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-
+      appBar: selectedIndex == 0
+          ? AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              leading: IconButton(
+                icon: Icon(
+                  widget.isDarkMode ? Icons.light_mode : Icons.dark_mode,
+                  color: isDark ? Colors.white : Colors.black,
+                ),
+                onPressed: widget.toggleTheme,
+              ),
+            )
+          : null,
+      extendBodyBehindAppBar: true,
+      extendBody: true,
+      body: screens[selectedIndex],
       bottomNavigationBar: Padding(
-        padding: const EdgeInsets.only(
-            bottom: 20, left: 16, right: 16),
+        padding: const EdgeInsets.only(bottom: 20, left: 16, right: 16),
         child: SizedBox(
-          height: 100,
-          child: Stack(
-            alignment: Alignment.center,
-            clipBehavior: Clip.none,
-            children: [
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                child: ClipRRect(
-                  borderRadius:
-                      BorderRadius.circular(28),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(
-                        sigmaX: 20, sigmaY: 20),
-                    child: Container(
-                      height: 70,
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? Colors.white.withOpacity(0.05)
-                            : Colors.black.withOpacity(0.08),
-                        borderRadius:
-                            BorderRadius.circular(28),
-                        border: Border.all(
-                          color: isDark
-                              ? Colors.white
-                                  .withOpacity(0.08)
-                              : Colors.black
-                                  .withOpacity(0.1),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment:
-                            MainAxisAlignment.spaceAround,
-                        children: [
-                          navItem(Icons.home, "Home", 0),
-                          navItem(Icons.article, "Ledger", 1),
-                          const SizedBox(width: 55),
-                          navItem(Icons.manage_search, "Pro", 3),
-                          navItem(Icons.public, "News", 4),
-                        ],
-                      ),
-                    ),
+          height: 90,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(38),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? Colors.grey.withOpacity(0.2)
+                      : Colors.grey.withOpacity(0.25),
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(
+                    color: isDark
+                        ? Colors.white.withOpacity(0.1)
+                        : Colors.black.withOpacity(0.15),
                   ),
                 ),
-              ),
-
-              /// CENTER REPORT BUTTON
-              Positioned(
-                bottom: 0,
-                child: Column(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
-                    GestureDetector(
-                      onTap: () {
-                        setState(() => selectedIndex = 2);
-                      },
-                      child: Container(
-                        height: 66,
-                        width: 66,
-                        decoration: const BoxDecoration(
-                          color: Colors.red,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.warning_rounded,
-                          color: Colors.white,
-                          size: 32,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      "Report",
-                      style: TextStyle(
-                          color: Colors.grey,
-                          fontSize: 11),
-                    ),
+                    navItem(Icons.home, "Home", 0),
+                    navItem(Icons.article, "Ledger", 1),
+                    reportItem(), // ✅ now inside row
+                    navItem(Icons.manage_search, "Pro", 3),
+                    navItem(Icons.public, "News", 4),
                   ],
                 ),
               ),
-            ],
+            ),
           ),
         ),
       ),
