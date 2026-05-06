@@ -44,6 +44,7 @@ class _LedgerScreenState extends State<LedgerScreen>
   final String moralisApiKey =
       "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6ImYyMTE4N2MxLTE4NzAtNDU0MC1hYzIwLTc3NTc4NDRhYjFjNCIsIm9yZ0lkIjoiNTEzODg4IiwidXNlcklkIjoiNTI4ODExIiwidHlwZUlkIjoiOTQ2YTI0ZGMtODdkNC00YzNiLTlmN2UtNTQzZjA3MDc2OTAyIiwidHlwZSI6IlBST0pFQ1QiLCJpYXQiOjE3Nzc3Mzg0NzMsImV4cCI6NDkzMzQ5ODQ3M30.MRhG1_u1iLfLPI77pteOnlpyQgvNyaDTzt2hm1hwOZA";
   final String covalentApiKey = "YOUR_COVALENT_API_KEY";
+  final String coinGeckoApiKey = "CG-aZWy4YFQ6YGD98ookZCRghDF";
 
   @override
   void initState() {
@@ -162,12 +163,43 @@ class _LedgerScreenState extends State<LedgerScreen>
         Uri.parse(
           "https://api.coingecko.com/api/v3/simple/price?ids=$coinId&vs_currencies=usd",
         ),
+        headers: {
+          "x-cg-demo-api-key": coinGeckoApiKey,
+        },
       );
       if (res.statusCode == 200) {
         return (jsonDecode(res.body)[coinId]['usd'] as num).toDouble();
       }
     } catch (_) {}
     return 0.0;
+  }
+
+  Future<void> _fetchCoinGeckoChart(String coinId) async {
+    try {
+      final res = await http.get(
+        Uri.parse(
+          "https://api.coingecko.com/api/v3/coins/$coinId/market_chart?vs_currency=usd&days=30&interval=daily",
+        ),
+        headers: {
+          "x-cg-demo-api-key": coinGeckoApiKey,
+        },
+      );
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final prices = data['prices'] as List;
+        List<FlSpot> spots = [];
+        for (int i = 0; i < prices.length; i++) {
+          double price = (prices[i][1] as num).toDouble();
+          spots.add(FlSpot(i.toDouble(), price));
+        }
+        setState(() {
+          _chartData = spots;
+        });
+      }
+    } catch (e) {
+      debugPrint("CoinGecko chart error: $e");
+    }
   }
 
   // ─── MAIN ENTRY POINT ──────────────────────────────────────────────────────
@@ -192,10 +224,13 @@ class _LedgerScreenState extends State<LedgerScreen>
 
     try {
       // Run fetching in parallel for better performance
+      String coinId = detectedChain.toLowerCase();
+      if (coinId == "ethereum") coinId = "ethereum";
+
       await Future.wait([
         _fetchBalance(address, detectedChain),
         _fetchTransactions(address, detectedChain),
-        _fetchCovalentGraph(address, 1),
+        _fetchCoinGeckoChart(coinId),
         _updatePrice(detectedChain),
       ]);
 
