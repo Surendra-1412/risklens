@@ -18,6 +18,11 @@ dependencies:
   http: ^0.13.6
   image_picker: ^1.0.7
   fl_chart: ^0.69.0
+  mobile_scanner: ^7.2.0
+  google_fonts: ^6.2.1
+
+dependency_overrides:
+  http: ^0.13.6
 
 dev_dependencies:
   flutter_test:
@@ -29,11 +34,12 @@ flutter:
   uses-material-design: true
   assets:
     - icon.png
+    - 1024.png
 
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "launcher.png"
+  image_path: "1024.png"
+  adaptive_icon_foreground: "1024.png"
   adaptive_icon_background: "#87CEEB"
-  adaptive_icon_foreground: "launcher.png"
   remove_alpha_ios: true

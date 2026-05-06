@@ -3,9 +3,11 @@ import 'dart:ui';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:fl_chart/fl_chart.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class LedgerScreen extends StatefulWidget {
-  const LedgerScreen({super.key});
+  final String? initialAddress;
+  const LedgerScreen({super.key, this.initialAddress});
 
   @override
   State<LedgerScreen> createState() => _LedgerScreenState();
@@ -21,9 +23,11 @@ class _LedgerScreenState extends State<LedgerScreen>
   bool _isLoading = false;
   bool _hasError = false;
   bool _showResults = false;
+  bool _showPriceInfo = false;
 
   String _balance = "0.00";
   String _chain = "Ethereum";
+  double _currentPrice = 0.0;
   String _errorMessage = "Invalid address or failed to fetch data";
   String _selectedTimeFilter = "1D";
 
@@ -48,6 +52,14 @@ class _LedgerScreenState extends State<LedgerScreen>
     _focusNode.addListener(() {
       setState(() => _isFocused = _focusNode.hasFocus);
     });
+
+    if (widget.initialAddress != null) {
+      _controller.text = widget.initialAddress!;
+      // Use addPostFrameCallback to ensure the widget is built before fetching
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        fetchWalletData();
+      });
+    }
   }
 
   @override
@@ -182,6 +194,13 @@ class _LedgerScreenState extends State<LedgerScreen>
       await _fetchBalance(address, detectedChain);
       await _fetchTransactions(address, detectedChain);
       await _fetchCovalentGraph(address, 1);
+
+      // Fetch current native coin price
+      String coinId = detectedChain.toLowerCase();
+      if (coinId == "ethereum") coinId = "ethereum";
+      if (coinId == "solana") coinId = "solana";
+      if (coinId == "bitcoin") coinId = "bitcoin";
+      _currentPrice = await _fetchPrice(coinId);
 
       setState(() {
         _showResults = true;
@@ -590,8 +609,11 @@ class _LedgerScreenState extends State<LedgerScreen>
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
-      backgroundColor: const Color(0xFF121212),
+      backgroundColor: isDark
+          ? const Color(0xFF121212)
+          : const Color(0xFFFFFBFE),
       body: SafeArea(
         bottom: false,
         child: Padding(
@@ -612,35 +634,62 @@ class _LedgerScreenState extends State<LedgerScreen>
   }
 
   Widget _buildHeader() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        RichText(
-          text: const TextSpan(
-            style: TextStyle(
-              fontSize: 35,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: isDark
+                ? Colors.grey.withOpacity(0.15)
+                : Colors.grey.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: isDark
+                  ? Colors.white.withOpacity(0.08)
+                  : Colors.black.withOpacity(0.06),
             ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              TextSpan(text: "Track before you "),
-              TextSpan(
-                text: "trust",
-                style: TextStyle(color: Colors.blue),
+              RichText(
+                text: TextSpan(
+                  style: TextStyle(
+                    fontSize: 45,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : Colors.black,
+                  ),
+                  children: [
+                    TextSpan(text: "Track before you "),
+                    TextSpan(
+                      text: "trust",
+                      style: TextStyle(color: Colors.blue),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                "Enter a wallet address to track portfolio and transaction history",
+                style: GoogleFonts.quicksand(
+                  color: isDark ? Colors.grey : Colors.black87,
+                  fontSize: 21,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 8),
-        const Text(
-          "Enter a wallet address to track portfolio and transactions",
-          style: TextStyle(color: Colors.grey, fontSize: 18),
-        ),
-      ],
+      ),
     );
   }
 
   Widget _buildGlassSearchBar() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return ClipRRect(
       borderRadius: BorderRadius.circular(30),
       child: BackdropFilter(
@@ -649,10 +698,16 @@ class _LedgerScreenState extends State<LedgerScreen>
           duration: const Duration(milliseconds: 200),
           height: 60,
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.05),
+            color: isDark
+                ? Colors.white.withOpacity(0.05)
+                : Colors.black.withOpacity(0.05),
             borderRadius: BorderRadius.circular(30),
             border: Border.all(
-              color: _isFocused ? Colors.blue : Colors.white.withOpacity(0.1),
+              color: _isFocused
+                  ? Colors.blue
+                  : (isDark
+                        ? Colors.white.withOpacity(0.1)
+                        : Colors.black.withOpacity(0.1)),
               width: _isFocused ? 2 : 1,
             ),
             boxShadow: _isFocused
@@ -672,9 +727,9 @@ class _LedgerScreenState extends State<LedgerScreen>
                 child: TextField(
                   controller: _controller,
                   focusNode: _focusNode,
-                  style: const TextStyle(color: Colors.white),
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black),
                   decoration: const InputDecoration(
-                    hintText: "Paste wallet address (ETH, SOL...)",
+                    hintText: "Enter wallet address (ETH, SOL...)",
                     hintStyle: TextStyle(color: Colors.grey),
                     border: InputBorder.none,
                   ),
@@ -686,11 +741,14 @@ class _LedgerScreenState extends State<LedgerScreen>
                   height: 44,
                   width: 44,
                   margin: const EdgeInsets.only(right: 8),
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white : Colors.black,
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.arrow_upward, color: Colors.black),
+                  child: Icon(
+                    Icons.arrow_upward,
+                    color: isDark ? Colors.black : Colors.white,
+                  ),
                 ),
               ),
             ],
@@ -701,6 +759,7 @@ class _LedgerScreenState extends State<LedgerScreen>
   }
 
   Widget _buildMainContent() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator(color: Colors.blue));
     }
@@ -716,10 +775,14 @@ class _LedgerScreenState extends State<LedgerScreen>
     }
 
     if (!_showResults) {
-      return const Center(
+      return Center(
         child: Text(
           "Enter a wallet address to begin tracking",
-          style: TextStyle(color: Colors.grey, fontSize: 16),
+          style: GoogleFonts.quicksand(
+            color: isDark ? Colors.white70 : Colors.black54,
+            fontSize: 18,
+            fontWeight: FontWeight.w500,
+          ),
         ),
       );
     }
@@ -728,16 +791,16 @@ class _LedgerScreenState extends State<LedgerScreen>
       children: [
         TabBar(
           controller: _tabController,
-          indicatorColor: Colors.white,
-          labelColor: Colors.white,
+          indicatorColor: Colors.blue,
+          labelColor: isDark ? Colors.white : Colors.black,
           unselectedLabelColor: Colors.grey,
-          dividerColor: Colors.white12,
-          labelStyle: const TextStyle(
+          dividerColor: isDark ? Colors.white12 : Colors.black12,
+          labelStyle: GoogleFonts.quicksand(
             fontSize: 20,
             fontWeight: FontWeight.bold,
           ),
-          unselectedLabelStyle: const TextStyle(
-            fontSize: 20,
+          unselectedLabelStyle: GoogleFonts.quicksand(
+            fontSize: 22,
             fontWeight: FontWeight.w500,
           ),
           tabs: const [
@@ -771,8 +834,12 @@ class _LedgerScreenState extends State<LedgerScreen>
         gridData: FlGridData(
           show: true,
           drawVerticalLine: false,
-          getDrawingHorizontalLine: (value) =>
-              FlLine(color: Colors.white.withOpacity(0.05), strokeWidth: 1),
+          getDrawingHorizontalLine: (value) => FlLine(
+            color: Theme.of(context).brightness == Brightness.dark
+                ? Colors.white.withOpacity(0.05)
+                : Colors.black.withOpacity(0.05),
+            strokeWidth: 1,
+          ),
         ),
         titlesData: FlTitlesData(
           show: true,
@@ -814,7 +881,7 @@ class _LedgerScreenState extends State<LedgerScreen>
     );
   }
 
-  Widget _buildChainLogo() {
+  Widget _buildChainLogo({double size = 36}) {
     final Map<String, String> logoUrls = {
       "Solana":
           "https://coin-images.coingecko.com/coins/images/4128/large/solana.png",
@@ -839,14 +906,14 @@ class _LedgerScreenState extends State<LedgerScreen>
     final symbol = chainSymbols[_chain] ?? "◈";
 
     final fallback = Container(
-      width: 36,
-      height: 36,
+      width: size,
+      height: size,
       decoration: BoxDecoration(color: color, shape: BoxShape.circle),
       child: Center(
         child: Text(
           symbol,
-          style: const TextStyle(
-            fontSize: 16,
+          style: TextStyle(
+            fontSize: size * 0.45,
             color: Colors.white,
             fontWeight: FontWeight.bold,
           ),
@@ -857,26 +924,33 @@ class _LedgerScreenState extends State<LedgerScreen>
     if (url == null) return fallback;
 
     return ClipRRect(
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(size / 2),
       child: Image.network(
         url,
-        width: 36,
-        height: 36,
+        width: size,
+        height: size,
         errorBuilder: (_, __, ___) => fallback,
       ),
     );
   }
 
   Widget _buildPortfolioTab() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return SingleChildScrollView(
       padding: const EdgeInsets.only(bottom: 120),
       physics: const BouncingScrollPhysics(),
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.05),
+          color: isDark
+              ? Colors.white.withOpacity(0.05)
+              : Colors.black.withOpacity(0.05),
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.white.withOpacity(0.1)),
+          border: Border.all(
+            color: isDark
+                ? Colors.white.withOpacity(0.1)
+                : Colors.black.withOpacity(0.1),
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -884,18 +958,67 @@ class _LedgerScreenState extends State<LedgerScreen>
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
+                Text(
                   "Performance",
-                  style: TextStyle(
-                    color: Colors.white,
+                  style: GoogleFonts.quicksand(
+                    color: isDark ? Colors.white : Colors.black,
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                Icon(
-                  Icons.info_outline,
-                  color: Colors.white.withOpacity(0.5),
-                  size: 18,
+                Row(
+                  children: [
+                    if (_showPriceInfo)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isDark ? Colors.grey[850] : Colors.grey[100],
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isDark ? Colors.white12 : Colors.black12,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildChainLogo(size: 14),
+                            const SizedBox(width: 6),
+                            Text(
+                              "${_currentPrice.toStringAsFixed(2)}\$",
+                              style: GoogleFonts.quicksand(
+                                color: isDark ? Colors.white : Colors.black,
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _showPriceInfo = !_showPriceInfo;
+                        });
+                        if (_showPriceInfo) {
+                          Future.delayed(const Duration(seconds: 4), () {
+                            if (mounted) {
+                              setState(() => _showPriceInfo = false);
+                            }
+                          });
+                        }
+                      },
+                      child: Icon(
+                        Icons.info_outline,
+                        color: (isDark ? Colors.white : Colors.black)
+                            .withOpacity(0.5),
+                        size: 20,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -906,8 +1029,8 @@ class _LedgerScreenState extends State<LedgerScreen>
                 const SizedBox(width: 12),
                 Text(
                   "\$$_balance",
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: GoogleFonts.quicksand(
+                    color: isDark ? Colors.white : Colors.black,
                     fontSize: 36,
                     fontWeight: FontWeight.bold,
                   ),
@@ -939,14 +1062,18 @@ class _LedgerScreenState extends State<LedgerScreen>
                     ),
                     decoration: BoxDecoration(
                       color: isSelected
-                          ? const Color(0xFF2A2A2A)
+                          ? (isDark
+                                ? const Color(0xFF2A2A2A)
+                                : Colors.blue.withOpacity(0.1))
                           : Colors.transparent,
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
                       filter,
-                      style: TextStyle(
-                        color: isSelected ? Colors.white : Colors.grey,
+                      style: GoogleFonts.quicksand(
+                        color: isSelected
+                            ? (isDark ? Colors.white : Colors.blue)
+                            : Colors.grey,
                         fontWeight: isSelected
                             ? FontWeight.bold
                             : FontWeight.normal,
@@ -965,26 +1092,40 @@ class _LedgerScreenState extends State<LedgerScreen>
   // --- FILTER UI & BOTTOM SHEETS ---
 
   Widget _buildHistoryFilters() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Column(
       children: [
         // Search Bar
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.05),
+            color: isDark
+                ? Colors.white.withOpacity(0.05)
+                : Colors.black.withOpacity(0.05),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white.withOpacity(0.1)),
+            border: Border.all(
+              color: isDark
+                  ? Colors.white.withOpacity(0.1)
+                  : Colors.black.withOpacity(0.1),
+            ),
           ),
           child: TextField(
             onChanged: (val) {
               _historySearchQuery = val;
               _applyFilters();
             },
-            style: const TextStyle(color: Colors.white),
-            decoration: const InputDecoration(
-              icon: Icon(Icons.search, color: Colors.grey, size: 24),
+            style: TextStyle(color: isDark ? Colors.white : Colors.black),
+            decoration: InputDecoration(
+              icon: Icon(
+                Icons.search,
+                color: isDark ? Colors.white70 : Colors.black54,
+                size: 24,
+              ),
               hintText: "Search address, protocol, asset...",
-              hintStyle: TextStyle(color: Colors.grey, fontSize: 18),
+              hintStyle: TextStyle(
+                color: isDark ? Colors.grey : Colors.grey.shade700,
+                fontSize: 18,
+              ),
               border: InputBorder.none,
             ),
           ),
@@ -994,7 +1135,7 @@ class _LedgerScreenState extends State<LedgerScreen>
         Row(
           children: [
             _buildFilterButton(
-              "Search by date",
+              "All dates",
               _historyFilterDate != null
                   ? _formatDate(_historyFilterDate!)
                   : null,
@@ -1023,6 +1164,7 @@ class _LedgerScreenState extends State<LedgerScreen>
     String? selectedText,
     VoidCallback onTap,
   ) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     bool isSelected = selectedText != null;
     return Expanded(
       child: GestureDetector(
@@ -1032,21 +1174,32 @@ class _LedgerScreenState extends State<LedgerScreen>
           decoration: BoxDecoration(
             color: isSelected
                 ? Colors.blue.withOpacity(0.2)
-                : Colors.white.withOpacity(0.05),
+                : (isDark
+                      ? Colors.white.withOpacity(0.05)
+                      : Colors.black.withOpacity(0.05)),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: isSelected ? Colors.blue : Colors.white.withOpacity(0.1),
+              color: isSelected
+                  ? Colors.blue
+                  : (isDark
+                        ? Colors.white.withOpacity(0.1)
+                        : Colors.black.withOpacity(0.1)),
             ),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              // Balanced spacer to match the icon on the right
+              const SizedBox(width: 18),
               Expanded(
                 child: Text(
                   isSelected ? selectedText : defaultText,
-                  style: TextStyle(
-                    color: isSelected ? Colors.blue : Colors.grey,
-                    fontSize: 12,
+                  style: GoogleFonts.quicksand(
+                    color: isSelected
+                        ? Colors.blue
+                        : (isDark ? Colors.grey : Colors.grey.shade700),
+                    fontSize: 15,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -1056,7 +1209,9 @@ class _LedgerScreenState extends State<LedgerScreen>
               const SizedBox(width: 4),
               Icon(
                 Icons.keyboard_arrow_down,
-                color: isSelected ? Colors.blue : Colors.grey,
+                color: isSelected
+                    ? Colors.blue
+                    : (isDark ? Colors.grey : Colors.grey.shade700),
                 size: 14,
               ),
             ],
@@ -1067,9 +1222,10 @@ class _LedgerScreenState extends State<LedgerScreen>
   }
 
   void _showDateFilterModal() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF1E1E1E),
+      backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -1082,9 +1238,11 @@ class _LedgerScreenState extends State<LedgerScreen>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   ListTile(
-                    title: const Text(
+                    title: Text(
                       "All Dates",
-                      style: TextStyle(color: Colors.white),
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                      ),
                     ),
                     leading: Icon(
                       _historyFilterDate == null
@@ -1102,18 +1260,27 @@ class _LedgerScreenState extends State<LedgerScreen>
                       Navigator.pop(context);
                     },
                   ),
-                  const Divider(color: Colors.white12),
+                  Divider(color: isDark ? Colors.white12 : Colors.black12),
                   SizedBox(
                     height: 300,
                     child: Theme(
-                      data: ThemeData.dark().copyWith(
-                        colorScheme: const ColorScheme.dark(
-                          primary: Colors.blue,
-                          onPrimary: Colors.white,
-                          surface: Color(0xFF1E1E1E),
-                          onSurface: Colors.white,
-                        ),
-                      ),
+                      data: isDark
+                          ? ThemeData.dark().copyWith(
+                              colorScheme: const ColorScheme.dark(
+                                primary: Colors.blue,
+                                onPrimary: Colors.white,
+                                surface: Color(0xFF1E1E1E),
+                                onSurface: Colors.white,
+                              ),
+                            )
+                          : ThemeData.light().copyWith(
+                              colorScheme: const ColorScheme.light(
+                                primary: Colors.blue,
+                                onPrimary: Colors.white,
+                                surface: Colors.white,
+                                onSurface: Colors.black,
+                              ),
+                            ),
                       child: CalendarDatePicker(
                         initialDate: _historyFilterDate ?? DateTime.now(),
                         firstDate: DateTime(2000),
@@ -1146,9 +1313,10 @@ class _LedgerScreenState extends State<LedgerScreen>
       "Approvals",
       "Smart Contract Interactions",
     ];
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF1E1E1E),
+      backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -1158,13 +1326,17 @@ class _LedgerScreenState extends State<LedgerScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: types.map((type) {
+              bool isSelected = _historyFilterType == type;
               return ListTile(
-                title: Text(type, style: const TextStyle(color: Colors.white)),
+                title: Text(
+                  type,
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                ),
                 leading: Icon(
-                  _historyFilterType == type
+                  isSelected
                       ? Icons.radio_button_checked
                       : Icons.radio_button_unchecked,
-                  color: _historyFilterType == type ? Colors.blue : Colors.grey,
+                  color: isSelected ? Colors.blue : Colors.grey,
                 ),
                 onTap: () {
                   setState(() {
@@ -1182,10 +1354,11 @@ class _LedgerScreenState extends State<LedgerScreen>
   }
 
   void _showDirectionFilterModal() {
-    final directions = ["All", "Sent", "Received"];
+    final directions = ["All", "Received", "Sent"];
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF1E1E1E),
+      backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -1249,6 +1422,8 @@ class _LedgerScreenState extends State<LedgerScreen>
                     List<Map<String, dynamic>> transactions =
                         _historyData[dateKey]!;
 
+                    final isDark =
+                        Theme.of(context).brightness == Brightness.dark;
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 24),
                       child: Column(
@@ -1256,8 +1431,8 @@ class _LedgerScreenState extends State<LedgerScreen>
                         children: [
                           Text(
                             dateKey,
-                            style: const TextStyle(
-                              color: Colors.white,
+                            style: TextStyle(
+                              color: isDark ? Colors.white : Colors.black,
                               fontSize: 16,
                               fontWeight: FontWeight.w500,
                             ),
@@ -1266,7 +1441,10 @@ class _LedgerScreenState extends State<LedgerScreen>
                           ...transactions
                               .map((tx) => _buildTransactionRow(tx))
                               .toList(),
-                          const Divider(color: Colors.white12, height: 1),
+                          Divider(
+                            color: isDark ? Colors.white12 : Colors.black12,
+                            height: 1,
+                          ),
                         ],
                       ),
                     );
@@ -1278,6 +1456,7 @@ class _LedgerScreenState extends State<LedgerScreen>
   }
 
   Widget _buildTransactionRow(Map<String, dynamic> tx) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     bool isReceive = tx['type'] == 'Receive';
     String cryptoSymbol =
         tx['tokenSymbol'] ??
@@ -1301,11 +1480,16 @@ class _LedgerScreenState extends State<LedgerScreen>
                 width: 40,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white24, width: 1),
+                  border: Border.all(
+                    color: isDark ? Colors.white24 : Colors.black12,
+                    width: 1,
+                  ),
                 ),
                 child: Icon(
                   isReceive ? Icons.arrow_downward : Icons.arrow_upward,
-                  color: isReceive ? Colors.greenAccent : Colors.white,
+                  color: isReceive
+                      ? Colors.greenAccent
+                      : (isDark ? Colors.white : Colors.black54),
                   size: 20,
                 ),
               ),
@@ -1341,7 +1525,9 @@ class _LedgerScreenState extends State<LedgerScreen>
                     Text(
                       "${tx['amountCrypto']} $cryptoSymbol",
                       style: TextStyle(
-                        color: isReceive ? Colors.greenAccent : Colors.white,
+                        color: isReceive
+                            ? Colors.greenAccent
+                            : (isDark ? Colors.white : Colors.black),
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                       ),
@@ -1369,7 +1555,10 @@ class _LedgerScreenState extends State<LedgerScreen>
                 children: [
                   Text(
                     _shortenAddress(tx['address']),
-                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontSize: 14,
+                    ),
                   ),
                   const SizedBox(width: 4),
                   const Icon(Icons.open_in_new, color: Colors.grey, size: 14),

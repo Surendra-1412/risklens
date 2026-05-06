@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'dart:ui';
 
 import 'Features/ledger_screen.dart';
+import 'Features/scanner_screen.dart';
+import 'Features/home_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -27,10 +29,13 @@ class _MyAppState extends State<MyApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: ThemeData.light(),
+      theme: ThemeData.light().copyWith(
+        scaffoldBackgroundColor: const Color(0xFFFFFBFE),
+        canvasColor: const Color(0xFFFFFBFE),
+      ),
       darkTheme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: Colors.black,
-        canvasColor: Colors.black,
+        scaffoldBackgroundColor: const Color(0xFF121212),
+        canvasColor: const Color(0xFF121212),
       ),
       themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
       home: ScanScreen(toggleTheme: toggleTheme, isDarkMode: isDarkMode),
@@ -95,7 +100,12 @@ class _ScanScreenState extends State<ScanScreen> {
 
   Widget reportItem() {
     return GestureDetector(
-      onTap: () => setState(() => selectedIndex = 2),
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const ScannerScreen()),
+        );
+      },
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -120,14 +130,9 @@ class _ScanScreenState extends State<ScanScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final screens = [
-      Center(
-        child: Text(
-          "Home Screen",
-          style: TextStyle(color: isDark ? Colors.white : Colors.black),
-        ),
-      ),
+      HomeScreen(toggleTheme: widget.toggleTheme, isDarkMode: widget.isDarkMode),
       const LedgerScreen(),
-      const Center(child: Text("Report Screen")),
+      const SizedBox.shrink(), // Scanner is now opened via Navigator.push
       const Center(child: Text("Pro Screen")),
       const Center(child: Text("News Screen")),
     ];
@@ -161,7 +166,7 @@ class _ScanScreenState extends State<ScanScreen> {
                 decoration: BoxDecoration(
                   color: isDark
                       ? Colors.grey.withOpacity(0.2)
-                      : Colors.grey.withOpacity(0.25),
+                      : Colors.grey.withOpacity(0.4),
                   borderRadius: BorderRadius.circular(28),
                   border: Border.all(
                     color: isDark
@@ -173,9 +178,9 @@ class _ScanScreenState extends State<ScanScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
                     navItem(Icons.home, "Home", 0),
-                    navItem(Icons.article, "Ledger", 1),
+                    navItem(Icons.visibility, "Track", 1),
                     reportItem(), // ✅ now inside row
-                    navItem(Icons.manage_search, "Pro", 3),
+                    navItem(Icons.workspace_premium, "Pro", 3),
                     navItem(Icons.public, "News", 4),
                   ],
                 ),
