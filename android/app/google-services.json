@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "331801287151",
+    "project_id": "risklens-auth-c9d3f",
+    "storage_bucket": "risklens-auth-c9d3f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:331801287151:android:26717a3fadee45b5703e1a",
+        "android_client_info": {
+          "package_name": "com.example.risklens"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "331801287151-ln9u1coq2l2jsnbrk5fv5d383odlk1jh.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.risklens",
+            "certificate_hash": "110d6db06bdda36b347cf6e3e77f0e42e7ea85f8"
+          }
+        },
+        {
+          "client_id": "331801287151-fanh7t7d372ocb4n3cfok3v4uhtlq1mm.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC4M8p1JdZ1HAuYNJJszZ_5-00GWKZfoEg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "331801287151-fanh7t7d372ocb4n3cfok3v4uhtlq1mm.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

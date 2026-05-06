@@ -191,16 +191,13 @@ class _LedgerScreenState extends State<LedgerScreen>
     });
 
     try {
-      await _fetchBalance(address, detectedChain);
-      await _fetchTransactions(address, detectedChain);
-      await _fetchCovalentGraph(address, 1);
-
-      // Fetch current native coin price
-      String coinId = detectedChain.toLowerCase();
-      if (coinId == "ethereum") coinId = "ethereum";
-      if (coinId == "solana") coinId = "solana";
-      if (coinId == "bitcoin") coinId = "bitcoin";
-      _currentPrice = await _fetchPrice(coinId);
+      // Run fetching in parallel for better performance
+      await Future.wait([
+        _fetchBalance(address, detectedChain),
+        _fetchTransactions(address, detectedChain),
+        _fetchCovalentGraph(address, 1),
+        _updatePrice(detectedChain),
+      ]);
 
       setState(() {
         _showResults = true;
@@ -215,6 +212,14 @@ class _LedgerScreenState extends State<LedgerScreen>
       });
       debugPrint("fetchWalletData error: $e");
     }
+  }
+
+  Future<void> _updatePrice(String chain) async {
+    String coinId = chain.toLowerCase();
+    if (coinId == "ethereum") coinId = "ethereum";
+    if (coinId == "solana") coinId = "solana";
+    if (coinId == "bitcoin") coinId = "bitcoin";
+    _currentPrice = await _fetchPrice(coinId);
   }
 
   // ─── BALANCE FETCHING ──────────────────────────────────────────────────────
@@ -467,11 +472,14 @@ class _LedgerScreenState extends State<LedgerScreen>
       try {
         final res = await http.get(
           Uri.parse(
-            "https://deep-index.moralis.io/api/v2.2/$address/transactions?chain=$chain&limit=25",
+            "https://deep-index.moralis.io/api/v2.2/wallets/$address/history?chain=$chain&limit=25",
           ),
           headers: {"X-API-Key": moralisApiKey, "accept": "application/json"},
         );
-        if (res.statusCode != 200) return chainTxs;
+        if (res.statusCode != 200) {
+          debugPrint("Moralis API Error (${res.statusCode}): ${res.body}");
+          return chainTxs;
+        }
 
         final data = jsonDecode(res.body);
         final results = data['result'] as List? ?? [];
@@ -479,42 +487,33 @@ class _LedgerScreenState extends State<LedgerScreen>
         for (var tx in results) {
           String from = tx['from_address']?.toString() ?? "";
           String to = tx['to_address']?.toString() ?? "";
-          double value =
-              (double.tryParse(tx['value']?.toString() ?? "0") ?? 0) / 1e18;
-          bool isReceive = to.toLowerCase() == address.toLowerCase();
-          DateTime time =
-              DateTime.tryParse(tx['block_timestamp'] ?? "") ?? DateTime.now();
+          
+          // Use native value for simple display, or use summary
+          double value = 0.0;
+          if (tx['value'] != null) {
+            value = (double.tryParse(tx['value'].toString()) ?? 0.0) / 1e18;
+          }
+          
+          bool isReceive = tx['direction'] == 'incoming' || to.toLowerCase() == address.toLowerCase();
+          DateTime time = DateTime.tryParse(tx['block_timestamp'] ?? "") ?? DateTime.now();
 
-          String input = tx['input']?.toString() ?? "0x";
-          String category = "Smart Contract Interactions";
-          if (input == "0x" || input.isEmpty)
-            category = "P2P";
-          else if (input.startsWith("0x095ea7b3"))
-            category = "Approvals";
-          else if (input.startsWith("0x38ed1739") ||
-              input.startsWith("0x7ff36ab5") ||
-              input.startsWith("0x5c11d795"))
-            category = "Swaps";
-          else if (input.startsWith("0x23b872dd") ||
-              input.startsWith("0x42842e0e"))
-            category = "NFT";
+          String category = tx['category']?.toString() ?? "Transaction";
+          // Map Moralis categories to UI categories
+          if (category == "native_transfer") category = "P2P";
+          else if (category == "token_transfer") category = "Token Transfer";
+          else if (category == "contract_interaction") category = "Contract";
+
+          String cryptoSymbol = chain == "eth" ? "ETH" : chain == "polygon" ? "MATIC" : chain == "bsc" ? "BNB" : chain.toUpperCase();
 
           chainTxs.add({
             "rawDate": time,
             "category": category,
             "type": isReceive ? "Receive" : "Send",
             "time": _formatTime(time),
-            "amountCrypto":
-                "${isReceive ? '+' : '-'}${value.toStringAsFixed(4)} ${chain.toUpperCase()}",
-            "amountFiat": "\$0.00",
+            "amountCrypto": "${isReceive ? '+' : '-'}${value.toStringAsFixed(4)} $cryptoSymbol",
+            "amountFiat": "\$0.00", // Moralis history sometimes provides USD value, but not always consistently
             "address": isReceive ? from : to,
-            "tokenSymbol": chain == "eth"
-                ? "ETH"
-                : chain == "polygon"
-                ? "MATIC"
-                : chain == "bsc"
-                ? "BNB"
-                : chain.toUpperCase(),
+            "tokenSymbol": cryptoSymbol,
           });
         }
       } catch (e) {
@@ -727,6 +726,7 @@ class _LedgerScreenState extends State<LedgerScreen>
                 child: TextField(
                   controller: _controller,
                   focusNode: _focusNode,
+                  onSubmitted: (_) => fetchWalletData(),
                   style: TextStyle(color: isDark ? Colors.white : Colors.black),
                   decoration: const InputDecoration(
                     hintText: "Enter wallet address (ETH, SOL...)",
@@ -1523,7 +1523,7 @@ class _LedgerScreenState extends State<LedgerScreen>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      "${tx['amountCrypto']} $cryptoSymbol",
+                      tx['amountCrypto'],
                       style: TextStyle(
                         color: isReceive
                             ? Colors.greenAccent

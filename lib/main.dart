@@ -1,11 +1,20 @@
 import 'package:flutter/material.dart';
 import 'dart:ui';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_fonts/google_fonts.dart';
 
+import 'Features/auth_screen.dart';
 import 'Features/ledger_screen.dart';
 import 'Features/scanner_screen.dart';
 import 'Features/home_screen.dart';
+import 'firebase_options.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const MyApp());
 }
 
@@ -38,7 +47,20 @@ class _MyAppState extends State<MyApp> {
         canvasColor: const Color(0xFF121212),
       ),
       themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
-      home: ScanScreen(toggleTheme: toggleTheme, isDarkMode: isDarkMode),
+      home: StreamBuilder<User?>(
+        stream: FirebaseAuth.instance.authStateChanges(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+          if (snapshot.hasData) {
+            return ScanScreen(toggleTheme: toggleTheme, isDarkMode: isDarkMode);
+          }
+          return const AuthScreen();
+        },
+      ),
     );
   }
 }
@@ -142,15 +164,61 @@ class _ScanScreenState extends State<ScanScreen> {
           ? AppBar(
               backgroundColor: Colors.transparent,
               elevation: 0,
-              leading: IconButton(
-                icon: Icon(
-                  widget.isDarkMode ? Icons.light_mode : Icons.dark_mode,
-                  color: isDark ? Colors.white : Colors.black,
-                ),
-                onPressed: widget.toggleTheme,
+              iconTheme: IconThemeData(
+                color: isDark ? Colors.white : Colors.black,
               ),
+              actions: [
+                IconButton(
+                  icon: Icon(
+                    widget.isDarkMode ? Icons.light_mode : Icons.dark_mode,
+                  ),
+                  onPressed: widget.toggleTheme,
+                ),
+                const SizedBox(width: 8),
+              ],
             )
           : null,
+      drawer: Drawer(
+        child: Container(
+          color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+          child: Column(
+            children: [
+              UserAccountsDrawerHeader(
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.8),
+                ),
+                currentAccountPicture: CircleAvatar(
+                  backgroundColor: Colors.white,
+                  child: Icon(Icons.person, color: Colors.blue, size: 40),
+                ),
+                accountName: Text(
+                  "RiskLens User",
+                  style: GoogleFonts.quicksand(fontWeight: FontWeight.bold),
+                ),
+                accountEmail: Text(
+                  FirebaseAuth.instance.currentUser?.email ?? "No Email",
+                  style: GoogleFonts.quicksand(),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.home, color: Colors.blue),
+                title: Text("Home", style: GoogleFonts.quicksand()),
+                onTap: () => Navigator.pop(context),
+              ),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.logout, color: Colors.redAccent),
+                title: Text("Logout",
+                    style: GoogleFonts.quicksand(color: Colors.redAccent)),
+                onTap: () {
+                  Navigator.pop(context);
+                  FirebaseAuth.instance.signOut();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
       extendBodyBehindAppBar: true,
       extendBody: true,
       body: screens[selectedIndex],
