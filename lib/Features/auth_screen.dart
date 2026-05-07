@@ -13,10 +13,12 @@ class AuthScreen extends StatefulWidget {
 class _AuthScreenState extends State<AuthScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _usernameController = TextEditingController();
   bool _isLogin = true;
   bool _isLoading = false;
   String _errorMessage = '';
   String _successMessage = '';
+  bool _obscurePassword = true;
 
   Future<void> _resetPassword() async {
     final email = _emailController.text.trim();
@@ -55,6 +57,22 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   Future<void> _submit() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+    final username = _usernameController.text.trim();
+
+    if (email.isEmpty || password.isEmpty || (!_isLogin && username.isEmpty)) {
+      setState(() {
+        if (!_isLogin && username.isEmpty) {
+          _errorMessage = 'Please enter a username';
+        } else {
+          _errorMessage = 'Please enter email and password';
+        }
+        _successMessage = '';
+      });
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _errorMessage = '';
@@ -64,20 +82,24 @@ class _AuthScreenState extends State<AuthScreen> {
     try {
       if (_isLogin) {
         await FirebaseAuth.instance.signInWithEmailAndPassword(
-          email: _emailController.text.trim(),
-          password: _passwordController.text.trim(),
+          email: email,
+          password: password,
         );
       } else {
-        await FirebaseAuth.instance.createUserWithEmailAndPassword(
-          email: _emailController.text.trim(),
-          password: _passwordController.text.trim(),
-        );
+        UserCredential userCredential = await FirebaseAuth.instance
+            .createUserWithEmailAndPassword(email: email, password: password);
+        await userCredential.user?.updateDisplayName(username);
       }
     } on FirebaseAuthException catch (e) {
       debugPrint("FirebaseAuthException code: ${e.code}");
-      debugPrint("FirebaseAuthException message: ${e.message}");
       setState(() {
-        _errorMessage = e.message ?? 'An error occurred';
+        if (e.code == 'invalid-credential' ||
+            e.code == 'wrong-password' ||
+            e.code == 'user-not-found') {
+          _errorMessage = 'The credentials are incorrect';
+        } else {
+          _errorMessage = e.message ?? 'An error occurred';
+        }
       });
     } catch (e) {
       setState(() {
@@ -125,7 +147,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       decoration: const BoxDecoration(
                         shape: BoxShape.circle,
                         image: DecorationImage(
-                          image: AssetImage('icon.png'),
+                          image: AssetImage('1024.png'),
                           fit: BoxFit.cover,
                         ),
                       ),
@@ -141,15 +163,24 @@ class _AuthScreenState extends State<AuthScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      _isLogin ? "Welcome Back" : "Create Account",
+                      _isLogin ? "Welcome Back" : "Create an account",
                       style: GoogleFonts.quicksand(
-                        fontSize: 18,
+                        fontSize: 20,
                         color: isDark ? Colors.white70 : Colors.black54,
                       ),
                     ),
                     const SizedBox(height: 48),
 
                     // Auth Form
+                    if (!_isLogin) ...[
+                      _buildGlassTextField(
+                        controller: _usernameController,
+                        hintText: "Username",
+                        icon: Icons.person_outline,
+                        isDark: isDark,
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                     _buildGlassTextField(
                       controller: _emailController,
                       hintText: "Email",
@@ -166,14 +197,14 @@ class _AuthScreenState extends State<AuthScreen> {
                     ),
                     if (_isLogin)
                       Align(
-                        alignment: Alignment.centerRight,
+                        alignment: Alignment.centerLeft,
                         child: TextButton(
                           onPressed: _isLoading ? null : _resetPassword,
                           child: Text(
                             "Forgot Password?",
                             style: TextStyle(
                               color: Colors.blue.withOpacity(0.8),
-                              fontSize: 14,
+                              fontSize: 18,
                             ),
                           ),
                         ),
@@ -185,6 +216,7 @@ class _AuthScreenState extends State<AuthScreen> {
                         style: const TextStyle(
                           color: Colors.redAccent,
                           fontWeight: FontWeight.bold,
+                          fontSize: 16,
                         ),
                         textAlign: TextAlign.center,
                       ),
@@ -196,6 +228,7 @@ class _AuthScreenState extends State<AuthScreen> {
                         style: const TextStyle(
                           color: Colors.greenAccent,
                           fontWeight: FontWeight.bold,
+                          fontSize: 16,
                         ),
                         textAlign: TextAlign.center,
                       ),
@@ -226,6 +259,7 @@ class _AuthScreenState extends State<AuthScreen> {
                         style: TextStyle(
                           color: Colors.blue,
                           fontWeight: FontWeight.bold,
+                          fontSize: 18,
                         ),
                       ),
                     ),
@@ -247,7 +281,7 @@ class _AuthScreenState extends State<AuthScreen> {
     bool isPassword = false,
   }) {
     return ClipRRect(
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(15),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
         child: Container(
@@ -264,12 +298,32 @@ class _AuthScreenState extends State<AuthScreen> {
           ),
           child: TextField(
             controller: controller,
-            obscureText: isPassword,
-            style: TextStyle(color: isDark ? Colors.white : Colors.black),
+            obscureText: isPassword ? _obscurePassword : false,
+            style: TextStyle(
+              color: isDark ? Colors.white : Colors.black,
+              fontSize: 18,
+            ),
             decoration: InputDecoration(
               prefixIcon: Icon(icon, color: Colors.blue),
+              suffixIcon: isPassword
+                  ? IconButton(
+                      iconSize: 28,
+                      splashRadius: 24,
+                      icon: Icon(
+                        _obscurePassword
+                            ? Icons.visibility_off
+                            : Icons.visibility,
+                        color: Colors.blue.withOpacity(0.7),
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _obscurePassword = !_obscurePassword;
+                        });
+                      },
+                    )
+                  : null,
               hintText: hintText,
-              hintStyle: const TextStyle(color: Colors.grey),
+              hintStyle: const TextStyle(color: Colors.grey, fontSize: 19),
               border: InputBorder.none,
               contentPadding: const EdgeInsets.all(20),
             ),
@@ -285,40 +339,40 @@ class _AuthScreenState extends State<AuthScreen> {
     required bool isDark,
     bool isLoading = false,
   }) {
-    return GestureDetector(
-      onTap: isLoading ? null : onTap,
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(30),
+      ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(30),
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Container(
-            width: double.infinity,
-            height: 60,
-            decoration: BoxDecoration(
-              color: Colors.blue.withOpacity(0.8),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: Colors.white.withOpacity(0.2),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.blue.withOpacity(0.3),
-                  blurRadius: 10,
-                  offset: const Offset(0, 5),
+          child: Material(
+            color: Colors.blue.withOpacity(0.8),
+            child: InkWell(
+              onTap: isLoading ? null : onTap,
+              splashColor: Colors.white.withOpacity(0.2),
+              highlightColor: Colors.white.withOpacity(0.1),
+              child: Container(
+                width: double.infinity,
+                height: 60,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(30),
+                  border: Border.all(color: Colors.white.withOpacity(0.2)),
                 ),
-              ],
-            ),
-            child: Center(
-              child: isLoading
-                  ? const CircularProgressIndicator(color: Colors.white)
-                  : Text(
-                      text,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                child: Center(
+                  child: isLoading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : Text(
+                          text,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 25,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                ),
+              ),
             ),
           ),
         ),
