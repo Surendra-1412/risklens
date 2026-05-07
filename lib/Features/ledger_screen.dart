@@ -647,7 +647,7 @@ class _LedgerScreenState extends State<LedgerScreen>
     return Scaffold(
       backgroundColor: isDark
           ? const Color(0xFF121212)
-          : const Color(0xFFFFFBFE),
+          : const Color(0xFFF5F5F7),
       body: SafeArea(
         bottom: false,
         child: Padding(
@@ -679,12 +679,12 @@ class _LedgerScreenState extends State<LedgerScreen>
           decoration: BoxDecoration(
             color: isDark
                 ? Colors.grey.withOpacity(0.15)
-                : Colors.grey.withOpacity(0.1),
+                : Colors.black.withOpacity(0.15),
             borderRadius: BorderRadius.circular(24),
             border: Border.all(
               color: isDark
                   ? Colors.white.withOpacity(0.08)
-                  : Colors.black.withOpacity(0.06),
+                  : Colors.black.withOpacity(0.1),
             ),
           ),
           child: Column(
@@ -710,9 +710,9 @@ class _LedgerScreenState extends State<LedgerScreen>
               Text(
                 "Enter a wallet address to track portfolio and transaction history",
                 style: GoogleFonts.quicksand(
-                  color: isDark ? Colors.grey : Colors.black87,
+                  color: isDark ? Colors.grey : Colors.black,
                   fontSize: 21,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: isDark ? FontWeight.w500 : FontWeight.w600,
                 ),
               ),
             ],
@@ -734,25 +734,16 @@ class _LedgerScreenState extends State<LedgerScreen>
           decoration: BoxDecoration(
             color: isDark
                 ? Colors.white.withOpacity(0.05)
-                : Colors.black.withOpacity(0.05),
+                : Colors.black.withOpacity(0.12),
             borderRadius: BorderRadius.circular(30),
             border: Border.all(
               color: _isFocused
                   ? Colors.blue
                   : (isDark
                         ? Colors.white.withOpacity(0.1)
-                        : Colors.black.withOpacity(0.1)),
+                        : Colors.black.withOpacity(0.15)),
               width: _isFocused ? 2 : 1,
             ),
-            boxShadow: _isFocused
-                ? [
-                    BoxShadow(
-                      color: Colors.blue.withOpacity(0.2),
-                      blurRadius: 10,
-                      spreadRadius: 2,
-                    ),
-                  ]
-                : [],
           ),
           child: Row(
             children: [
@@ -810,13 +801,35 @@ class _LedgerScreenState extends State<LedgerScreen>
     }
 
     if (!_showResults) {
-      return Center(
-        child: Text(
-          "Enter a wallet address to begin tracking",
-          style: GoogleFonts.quicksand(
-            color: isDark ? Colors.white70 : Colors.black54,
-            fontSize: 18,
-            fontWeight: FontWeight.w500,
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withOpacity(0.05)
+                  : Colors.black.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withOpacity(0.08)
+                    : Colors.black.withOpacity(0.15),
+              ),
+            ),
+            child: Center(
+              child: Text(
+                "Enter a wallet address to begin tracking",
+                textAlign: TextAlign.center,
+                style: GoogleFonts.quicksand(
+                  color: isDark ? Colors.white70 : Colors.black,
+                  fontSize: 18,
+                  fontWeight: isDark ? FontWeight.w500 : FontWeight.w600,
+                ),
+              ),
+            ),
           ),
         ),
       );

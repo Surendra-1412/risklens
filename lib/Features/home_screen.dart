@@ -26,6 +26,10 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isLoading = false;
   Map<String, dynamic>? _securityData;
   String? _error;
+  bool _isDetailsExpanded = false;
+
+  final String _goPlusApiKey = "UStMZSdsgeMpFbkwhWpj";
+  Map<String, String> get _headers => {"Authorization": _goPlusApiKey};
 
   @override
   void initState() {
@@ -97,15 +101,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _fetchEvmSecurity(String address) async {
     final url = Uri.parse(
-        "https://api.gopluslabs.io/api/v1/address_security/$address?chain_id=1");
-    final response = await http.get(url);
+      "https://api.gopluslabs.io/api/v1/address_security/$address?chain_id=1",
+    );
+    final response = await http.get(url, headers: _headers);
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
-      setState(() => _securityData = {
-            "type": "Wallet",
-            "status": _getWalletStatus(data['result']),
-            "details": _formatWalletDetails(data['result']),
-          });
+      setState(
+        () => _securityData = {
+          "type": "Wallet",
+          "status": _getWalletStatus(data['result']),
+          "details": _formatWalletDetails(data['result']),
+        },
+      );
     } else {
       throw Exception();
     }
@@ -113,15 +120,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _fetchSolanaSecurity(String address) async {
     final url = Uri.parse(
-        "https://api.gopluslabs.io/api/v1/address_security/$address?chain_id=solana");
-    final response = await http.get(url);
+      "https://api.gopluslabs.io/api/v1/address_security/$address?chain_id=solana",
+    );
+    final response = await http.get(url, headers: _headers);
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
-      setState(() => _securityData = {
-            "type": "Wallet",
-            "status": _getWalletStatus(data['result']),
-            "details": _formatWalletDetails(data['result']),
-          });
+      setState(
+        () => _securityData = {
+          "type": "Wallet",
+          "status": _getWalletStatus(data['result']),
+          "details": _formatWalletDetails(data['result']),
+        },
+      );
     } else {
       throw Exception();
     }
@@ -129,15 +139,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _fetchUrlSecurity(String siteUrl) async {
     final url = Uri.parse(
-        "https://api.gopluslabs.io/api/v1/url_security?url=$siteUrl");
-    final response = await http.get(url);
+      "https://api.gopluslabs.io/api/v1/url_security?url=$siteUrl",
+    );
+    final response = await http.get(url, headers: _headers);
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
-      setState(() => _securityData = {
-            "type": "URL",
-            "status": _getUrlStatus(data['result']),
-            "details": _formatUrlDetails(data['result']),
-          });
+      setState(
+        () => _securityData = {
+          "type": "URL",
+          "status": _getUrlStatus(data['result']),
+          "details": _formatUrlDetails(data['result']),
+        },
+      );
     } else {
       throw Exception();
     }
@@ -168,17 +181,17 @@ class _HomeScreenState extends State<HomeScreen> {
       {
         "icon": Icons.security,
         "label": "Token safety",
-        "value": result?['honeypot_related'] == "1" ? "Honeypot" : "Secure"
+        "value": result?['honeypot_related'] == "1" ? "Honeypot" : "Secure",
       },
       {
         "icon": Icons.verified_user,
         "label": "Approval risks",
-        "value": result?['blacklisted'] == "1" ? "Detected" : "None"
+        "value": result?['blacklisted'] == "1" ? "Detected" : "None",
       },
       {
         "icon": Icons.warning_amber,
         "label": "Suspicious indicators",
-        "value": result?['malicious_address'] == "1" ? "Found" : "None"
+        "value": result?['malicious_address'] == "1" ? "Found" : "None",
       },
     ];
   }
@@ -188,17 +201,17 @@ class _HomeScreenState extends State<HomeScreen> {
       {
         "icon": Icons.language,
         "label": "Domain safety score",
-        "value": result?['phishing_site'] == "1" ? "Low" : "High"
+        "value": result?['phishing_site'] == "1" ? "Low" : "High",
       },
       {
         "icon": Icons.security,
         "label": "Risk indicators",
-        "value": result?['malicious_site'] == "1" ? "Alert" : "Clean"
+        "value": result?['malicious_site'] == "1" ? "Alert" : "Clean",
       },
       {
         "icon": Icons.reorder,
         "label": "Reputation signals",
-        "value": result?['phishing_site'] == "1" ? "Poor" : "Good"
+        "value": result?['phishing_site'] == "1" ? "Poor" : "Good",
       },
     ];
   }
@@ -222,8 +235,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
-      backgroundColor:
-          isDark ? const Color(0xFF121212) : const Color(0xFFFFFBFE),
+      backgroundColor: isDark
+          ? const Color(0xFF121212)
+          : const Color(0xFFF5F5F7),
       body: SafeArea(
         bottom: false,
         child: SingleChildScrollView(
@@ -235,8 +249,6 @@ class _HomeScreenState extends State<HomeScreen> {
               _buildHeroHeader(isDark),
               const SizedBox(height: 24),
               _buildFloatingSearchBar(isDark),
-              const SizedBox(height: 24),
-              _buildQuickActionChips(isDark),
               const SizedBox(height: 32),
               _buildSecurityResultCard(isDark),
               const SizedBox(height: 120),
@@ -260,12 +272,12 @@ class _HomeScreenState extends State<HomeScreen> {
           decoration: BoxDecoration(
             color: isDark
                 ? Colors.grey.withOpacity(0.15)
-                : Colors.grey.withOpacity(0.1),
+                : Colors.black.withOpacity(0.15),
             borderRadius: BorderRadius.circular(24),
             border: Border.all(
               color: isDark
                   ? Colors.white.withOpacity(0.08)
-                  : Colors.black.withOpacity(0.06),
+                  : Colors.black.withOpacity(0.1),
             ),
           ),
           child: Column(
@@ -291,9 +303,9 @@ class _HomeScreenState extends State<HomeScreen> {
               Text(
                 "Find potential threats involved and interactions with malicious contracts",
                 style: GoogleFonts.quicksand(
-                  color: isDark ? Colors.grey : Colors.black87,
+                  color: isDark ? Colors.grey : Colors.black,
                   fontSize: 21,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: isDark ? FontWeight.w500 : FontWeight.w600,
                 ),
               ),
             ],
@@ -316,25 +328,16 @@ class _HomeScreenState extends State<HomeScreen> {
           decoration: BoxDecoration(
             color: isDark
                 ? Colors.white.withOpacity(0.05)
-                : Colors.black.withOpacity(0.05),
+                : Colors.black.withOpacity(0.12),
             borderRadius: BorderRadius.circular(30),
             border: Border.all(
               color: _isFocused
                   ? Colors.blue
                   : (isDark
-                      ? Colors.white.withOpacity(0.1)
-                      : Colors.black.withOpacity(0.1)),
+                        ? Colors.white.withOpacity(0.1)
+                        : Colors.black.withOpacity(0.15)),
               width: _isFocused ? 2 : 1,
             ),
-            boxShadow: _isFocused
-                ? [
-                    BoxShadow(
-                      color: Colors.blue.withOpacity(0.2),
-                      blurRadius: 10,
-                      spreadRadius: 2,
-                    ),
-                  ]
-                : [],
           ),
           child: Row(
             children: [
@@ -344,10 +347,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: TextField(
                   controller: _searchController,
                   focusNode: _focusNode,
-                  style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black,
+                    fontSize: 16,
+                  ),
                   decoration: InputDecoration(
-                    hintText: "Paste wallet, contract, or URL",
-                    hintStyle: GoogleFonts.quicksand(color: Colors.grey),
+                    hintText: "Paste crypto address, Dapp url etc...",
+                    hintStyle: GoogleFonts.quicksand(
+                      color: isDark ? Colors.grey : Colors.black45,
+                      fontSize: 17,
+                    ),
                     border: InputBorder.none,
                   ),
                   onSubmitted: (_) => _fetchSecurityData(),
@@ -391,83 +400,6 @@ class _HomeScreenState extends State<HomeScreen> {
           fontWeight: FontWeight.bold,
           color: Colors.blue,
         ),
-      ),
-    );
-  }
-
-  // --- QUICK ACTION CHIPS ---
-
-  Widget _buildQuickActionChips(bool isDark) {
-    final actions = [
-      {
-        "icon": Icons.account_balance_wallet,
-        "label": "Wallet Scan",
-        "hint": "0x..."
-      },
-      {
-        "icon": Icons.description,
-        "label": "Contract Scan",
-        "hint": "0x..."
-      },
-      {
-        "icon": Icons.link,
-        "label": "Link Analysis",
-        "hint": "https://..."
-      },
-    ];
-
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      physics: const BouncingScrollPhysics(),
-      child: Row(
-        children: actions.map((action) {
-          return Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: GestureDetector(
-              onTap: () {
-                _searchController.text = action['hint'] as String;
-                _focusNode.requestFocus();
-              },
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(20),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: isDark
-                          ? Colors.white.withOpacity(0.05)
-                          : Colors.black.withOpacity(0.05),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: isDark ? Colors.white12 : Colors.black12,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          action['icon'] as IconData,
-                          size: 16,
-                          color: isDark ? Colors.white70 : Colors.black54,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          action['label'] as String,
-                          style: GoogleFonts.quicksand(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: isDark ? Colors.white70 : Colors.black54,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
-        }).toList(),
       ),
     );
   }
@@ -543,33 +475,58 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  "Security Overview",
-                  style: GoogleFonts.quicksand(
-                    color: isDark ? Colors.white : Colors.black,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
+            GestureDetector(
+              onTap: () =>
+                  setState(() => _isDetailsExpanded = !_isDetailsExpanded),
+              behavior: HitTestBehavior.opaque,
+              child: Row(
+                children: [
+                  Text(
+                    "Security Overview",
+                    style: GoogleFonts.quicksand(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontSize: 23,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
-                _buildStatusIndicator(
-                    _securityData!['status'], statusColor),
-              ],
+                  const SizedBox(width: 12),
+                  _buildStatusIndicator(_securityData!['status'], statusColor),
+                  const Spacer(),
+                  AnimatedRotation(
+                    turns: _isDetailsExpanded ? 0.25 : 0.0,
+                    duration: const Duration(milliseconds: 200),
+                    child: Icon(
+                      Icons.chevron_right,
+                      color: isDark ? Colors.white54 : Colors.black45,
+                      size: 24,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 24),
-            ...(_securityData!['details'] as List).map((detail) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: _buildDetailRow(
-                  isDark,
-                  detail['icon'],
-                  detail['label'],
-                  detail['value'],
+            AnimatedCrossFade(
+              firstChild: const SizedBox.shrink(),
+              secondChild: Padding(
+                padding: const EdgeInsets.only(top: 24),
+                child: Column(
+                  children: (_securityData!['details'] as List).map((detail) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: _buildDetailRow(
+                        isDark,
+                        detail['icon'],
+                        detail['label'],
+                        detail['value'],
+                      ),
+                    );
+                  }).toList(),
                 ),
-              );
-            }),
+              ),
+              crossFadeState: _isDetailsExpanded
+                  ? CrossFadeState.showSecond
+                  : CrossFadeState.showFirst,
+              duration: const Duration(milliseconds: 300),
+            ),
           ],
         ),
       ),
@@ -583,12 +540,12 @@ class _HomeScreenState extends State<HomeScreen> {
       decoration: BoxDecoration(
         color: isDark
             ? Colors.white.withOpacity(0.05)
-            : Colors.black.withOpacity(0.05),
+            : Colors.black.withOpacity(0.12),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
           color: isDark
               ? Colors.white.withOpacity(0.1)
-              : Colors.black.withOpacity(0.1),
+              : Colors.black.withOpacity(0.2),
         ),
       ),
       child: child,
@@ -597,18 +554,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildStatusIndicator(String status, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.5)),
-        boxShadow: [
-          BoxShadow(
-            color: color.withOpacity(0.2),
-            blurRadius: 8,
-            spreadRadius: 1,
-          ),
-        ],
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color, width: 1.5),
       ),
       child: Text(
         status,
@@ -622,7 +572,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildDetailRow(
-      bool isDark, IconData icon, String label, String value) {
+    bool isDark,
+    IconData icon,
+    String label,
+    String value,
+  ) {
     return Row(
       children: [
         Container(
@@ -633,8 +587,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 : Colors.black.withOpacity(0.05),
             shape: BoxShape.circle,
           ),
-          child: Icon(icon,
-              size: 18, color: isDark ? Colors.white70 : Colors.black54),
+          child: Icon(
+            icon,
+            size: 18,
+            color: isDark ? Colors.white70 : Colors.black87,
+          ),
         ),
         const SizedBox(width: 16),
         Column(
@@ -643,7 +600,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Text(
               label,
               style: GoogleFonts.quicksand(
-                color: isDark ? Colors.white38 : Colors.black38,
+                color: isDark ? Colors.white38 : Colors.black54,
                 fontSize: 12,
               ),
             ),
