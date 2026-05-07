@@ -37,7 +37,7 @@ class AppDrawer extends StatelessWidget {
                 child: Icon(Icons.person, color: Colors.blue, size: 40),
               ),
               accountName: Text(
-                "RiskLens User",
+                FirebaseAuth.instance.currentUser?.displayName ?? "User",
                 style: GoogleFonts.quicksand(fontWeight: FontWeight.bold),
               ),
               accountEmail: Text(

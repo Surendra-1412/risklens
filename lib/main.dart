@@ -57,7 +57,11 @@ class _MyAppState extends State<MyApp> {
             );
           }
           if (snapshot.hasData) {
-            return ScanScreen(toggleTheme: toggleTheme, isDarkMode: isDarkMode);
+            final user = snapshot.data;
+            if (user != null && user.emailVerified) {
+              return ScanScreen(toggleTheme: toggleTheme, isDarkMode: isDarkMode);
+            }
+            return const AuthScreen();
           }
           return const AuthScreen();
         },

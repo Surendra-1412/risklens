@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:ui';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -283,6 +284,15 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Text(
+                "Hello, ${FirebaseAuth.instance.currentUser?.displayName?.split(' ')[0] ?? 'User'}!",
+                style: GoogleFonts.quicksand(
+                  color: Colors.blue,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
               RichText(
                 text: TextSpan(
                   style: TextStyle(

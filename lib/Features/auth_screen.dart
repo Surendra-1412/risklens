@@ -19,6 +19,7 @@ class _AuthScreenState extends State<AuthScreen> {
   String _errorMessage = '';
   String _successMessage = '';
   bool _obscurePassword = true;
+  bool _isVerificationSent = false;
 
   Future<void> _resetPassword() async {
     final email = _emailController.text.trim();
@@ -81,14 +82,26 @@ class _AuthScreenState extends State<AuthScreen> {
 
     try {
       if (_isLogin) {
-        await FirebaseAuth.instance.signInWithEmailAndPassword(
+        UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
           email: email,
           password: password,
         );
+        if (userCredential.user != null && !userCredential.user!.emailVerified) {
+          await userCredential.user!.sendEmailVerification();
+          setState(() {
+            _isVerificationSent = true;
+            _successMessage = 'Please verify your email. A link has been sent.';
+          });
+        }
       } else {
         UserCredential userCredential = await FirebaseAuth.instance
             .createUserWithEmailAndPassword(email: email, password: password);
         await userCredential.user?.updateDisplayName(username);
+        await userCredential.user?.sendEmailVerification();
+        setState(() {
+          _isVerificationSent = true;
+          _successMessage = 'Account created! Please check your email for a verification link.';
+        });
       }
     } on FirebaseAuthException catch (e) {
       debugPrint("FirebaseAuthException code: ${e.code}");
@@ -103,7 +116,7 @@ class _AuthScreenState extends State<AuthScreen> {
       });
     } catch (e) {
       setState(() {
-        _errorMessage = 'An unexpected error occurred';
+        _errorMessage = 'Error: ${e.toString()}';
       });
     } finally {
       if (mounted) {
@@ -195,6 +208,28 @@ class _AuthScreenState extends State<AuthScreen> {
                       isDark: isDark,
                       isPassword: true,
                     ),
+                    if (_isVerificationSent) ...[
+                      const SizedBox(height: 24),
+                      Text(
+                        "Verification link sent to ${_emailController.text}",
+                        style: const TextStyle(color: Colors.blue, fontSize: 16),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: () async {
+                          await FirebaseAuth.instance.currentUser?.reload();
+                          if (FirebaseAuth.instance.currentUser?.emailVerified ?? false) {
+                            if (mounted) Navigator.of(context).pushReplacementNamed('/');
+                          } else {
+                            setState(() {
+                              _errorMessage = "Email not verified yet. Please check your inbox.";
+                            });
+                          }
+                        },
+                        child: const Text("I have verified my email"),
+                      ),
+                    ],
                     if (_isLogin)
                       Align(
                         alignment: Alignment.centerLeft,
@@ -236,12 +271,13 @@ class _AuthScreenState extends State<AuthScreen> {
                     const SizedBox(height: 32),
 
                     // Submit Button
-                    _buildGlassButton(
-                      onTap: _submit,
-                      text: _isLogin ? "Login" : "Sign Up",
-                      isDark: isDark,
-                      isLoading: _isLoading,
-                    ),
+                    if (!_isVerificationSent)
+                      _buildGlassButton(
+                        onTap: _submit,
+                        text: _isLogin ? "Login" : "Sign Up",
+                        isDark: isDark,
+                        isLoading: _isLoading,
+                      ),
                     const SizedBox(height: 16),
 
                     // Toggle Button
@@ -249,7 +285,9 @@ class _AuthScreenState extends State<AuthScreen> {
                       onPressed: () {
                         setState(() {
                           _isLogin = !_isLogin;
+                          _isVerificationSent = false;
                           _errorMessage = '';
+                          _successMessage = '';
                         });
                       },
                       child: Text(

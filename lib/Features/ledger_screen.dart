@@ -16,6 +16,7 @@ class LedgerScreen extends StatefulWidget {
 class _LedgerScreenState extends State<LedgerScreen>
     with SingleTickerProviderStateMixin {
   final TextEditingController _controller = TextEditingController();
+  final TextEditingController _historySearchController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   late TabController _tabController;
 
@@ -221,6 +222,8 @@ class _LedgerScreenState extends State<LedgerScreen>
       _balance = "0.00";
       _errorMessage = "Failed to load portfolio data";
     });
+    
+    debugPrint("Detected chain: $detectedChain for address: $address");
 
     try {
       // Run fetching in parallel for better performance
@@ -377,6 +380,7 @@ class _LedgerScreenState extends State<LedgerScreen>
     List<Map<String, dynamic>> tempTxs = [];
 
     try {
+      debugPrint("Fetching transactions for $chain - $address");
       if (chain == "Bitcoin") {
         tempTxs = await _fetchBitcoinTxs(address);
       } else if (chain == "Solana") {
@@ -384,13 +388,17 @@ class _LedgerScreenState extends State<LedgerScreen>
       } else if (chain == "Ethereum") {
         tempTxs = await _fetchEvmTxs(address);
       }
+      debugPrint("Fetched ${tempTxs.length} transactions for $chain");
     } catch (e) {
       debugPrint("Transaction fetch error: $e");
     }
 
-    tempTxs.sort(
-      (a, b) => (b['rawDate'] as DateTime).compareTo(a['rawDate'] as DateTime),
-    );
+    if (tempTxs.isNotEmpty) {
+      tempTxs.sort(
+        (a, b) => (b['rawDate'] as DateTime).compareTo(a['rawDate'] as DateTime),
+      );
+    }
+    
     _allTransactions = tempTxs;
     _applyFilters();
   }
@@ -457,25 +465,41 @@ class _LedgerScreenState extends State<LedgerScreen>
       if (res.statusCode != 200) return txs;
 
       final data = jsonDecode(res.body);
+      debugPrint("Solana API response: ${res.statusCode}");
+      
       final list = data is List ? data : (data['result'] as List? ?? []);
+      debugPrint("Found ${list.length} raw Solana transactions");
 
       for (var tx in list) {
-        // Parse native SOL transfers
+        // Parse timestamp - Moralis returns Unix seconds
+        int blockTime = tx['blockTime'] ?? tx['block_time'] ?? 0;
+        DateTime time = blockTime > 0
+            ? DateTime.fromMillisecondsSinceEpoch(blockTime * 1000)
+            : DateTime.now();
+
         final nativeTransfers = tx['nativeTransfers'] as List? ?? [];
+        if (nativeTransfers.isEmpty) {
+          // Add a generic transaction entry if no transfers are found
+          txs.add({
+            "rawDate": time,
+            "category": "Contract",
+            "type": "Interaction",
+            "time": _formatTime(time),
+            "amountCrypto": "0.00 SOL",
+            "amountFiat": "\$0.00",
+            "address": "Multiple Accounts",
+            "tokenSymbol": "SOL",
+          });
+          continue;
+        }
+
         for (var transfer in nativeTransfers) {
           double amount =
               (double.tryParse(transfer['amount']?.toString() ?? "0") ?? 0) /
               1e9;
-          if (amount <= 0) continue;
           String from = transfer['from']?.toString() ?? "";
           String to = transfer['to']?.toString() ?? "";
           bool isReceive = to == address;
-
-          // Parse timestamp - Moralis returns Unix seconds
-          int blockTime = tx['blockTime'] ?? tx['block_time'] ?? 0;
-          DateTime time = blockTime > 0
-              ? DateTime.fromMillisecondsSinceEpoch(blockTime * 1000)
-              : DateTime.now();
 
           txs.add({
             "rawDate": time,
@@ -753,6 +777,7 @@ class _LedgerScreenState extends State<LedgerScreen>
                   controller: _controller,
                   focusNode: _focusNode,
                   onSubmitted: (_) => fetchWalletData(),
+                  enableInteractiveSelection: true,
                   style: TextStyle(color: isDark ? Colors.white : Colors.black),
                   decoration: const InputDecoration(
                     hintText: "Enter wallet address (ETH, SOL...)",
@@ -985,154 +1010,174 @@ class _LedgerScreenState extends State<LedgerScreen>
   Widget _buildPortfolioTab() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return SingleChildScrollView(
-      padding: const EdgeInsets.only(bottom: 120),
+      padding: const EdgeInsets.only(bottom: 140),
       physics: const BouncingScrollPhysics(),
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: isDark
-              ? Colors.white.withOpacity(0.05)
-              : Colors.black.withOpacity(0.05),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-            color: isDark
-                ? Colors.white.withOpacity(0.1)
-                : Colors.black.withOpacity(0.1),
+      child: Column(
+        children: [
+          // Performance & Balance Card
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.1),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      "Performance",
+                      style: GoogleFonts.quicksand(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        if (_showPriceInfo)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: isDark ? Colors.grey[850] : Colors.grey[100],
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: isDark ? Colors.white12 : Colors.black12),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _buildChainLogo(size: 14),
+                                const SizedBox(width: 6),
+                                Text(
+                                  "${_currentPrice.toStringAsFixed(2)}\$",
+                                  style: GoogleFonts.quicksand(
+                                    color: isDark ? Colors.white : Colors.black,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: () {
+                            setState(() => _showPriceInfo = !_showPriceInfo);
+                            if (_showPriceInfo) {
+                              Future.delayed(const Duration(seconds: 4), () {
+                                if (mounted) setState(() => _showPriceInfo = false);
+                              });
+                            }
+                          },
+                          child: Icon(
+                            Icons.info_outline,
+                            color: (isDark ? Colors.white : Colors.black).withOpacity(0.5),
+                            size: 20,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    _buildChainLogo(),
+                    const SizedBox(width: 12),
+                    Text(
+                      "\$$_balance",
+                      style: GoogleFonts.quicksand(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontSize: 36,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  "+0.11% (\$0.00)",
+                  style: TextStyle(color: Colors.greenAccent, fontSize: 14, fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 24),
+                SizedBox(height: 200, child: _buildGraph()),
+                const SizedBox(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: ["1H", "1D", "1W", "1M", "1Y", "Max"].map((filter) {
+                    bool isSelected = _selectedTimeFilter == filter;
+                    return GestureDetector(
+                      onTap: () => setState(() => _selectedTimeFilter = filter),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? (isDark ? const Color(0xFF2A2A2A) : Colors.blue.withOpacity(0.1))
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          filter,
+                          style: GoogleFonts.quicksand(
+                            color: isSelected ? (isDark ? Colors.white : Colors.blue) : Colors.grey,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
           ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          const SizedBox(height: 32),
+          // Recent Transactions Section
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.1),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  "Performance",
+                  "Recent Transactions",
                   style: GoogleFonts.quicksand(
                     color: isDark ? Colors.white : Colors.black,
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                Row(
-                  children: [
-                    if (_showPriceInfo)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isDark ? Colors.grey[850] : Colors.grey[100],
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: isDark ? Colors.white12 : Colors.black12,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _buildChainLogo(size: 14),
-                            const SizedBox(width: 6),
-                            Text(
-                              "${_currentPrice.toStringAsFixed(2)}\$",
-                              style: GoogleFonts.quicksand(
-                                color: isDark ? Colors.white : Colors.black,
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    const SizedBox(width: 8),
-                    GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          _showPriceInfo = !_showPriceInfo;
-                        });
-                        if (_showPriceInfo) {
-                          Future.delayed(const Duration(seconds: 4), () {
-                            if (mounted) {
-                              setState(() => _showPriceInfo = false);
-                            }
-                          });
-                        }
-                      },
-                      child: Icon(
-                        Icons.info_outline,
-                        color: (isDark ? Colors.white : Colors.black)
-                            .withOpacity(0.5),
-                        size: 20,
-                      ),
+                const SizedBox(height: 16),
+                if (_allTransactions.isEmpty)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(vertical: 20),
+                      child: Text("No transactions found", style: TextStyle(color: Colors.grey)),
                     ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                _buildChainLogo(),
-                const SizedBox(width: 12),
-                Text(
-                  "\$$_balance",
-                  style: GoogleFonts.quicksand(
-                    color: isDark ? Colors.white : Colors.black,
-                    fontSize: 36,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              "+0.11% (\$0.00)",
-              style: TextStyle(
-                color: Colors.greenAccent,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(height: 32),
-            SizedBox(height: 200, child: _buildGraph()),
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: ["1H", "1D", "1W", "1M", "1Y", "Max"].map((filter) {
-                bool isSelected = _selectedTimeFilter == filter;
-                return GestureDetector(
-                  onTap: () => setState(() => _selectedTimeFilter = filter),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? (isDark
-                                ? const Color(0xFF2A2A2A)
-                                : Colors.blue.withOpacity(0.1))
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      filter,
-                      style: GoogleFonts.quicksand(
-                        color: isSelected
-                            ? (isDark ? Colors.white : Colors.blue)
-                            : Colors.grey,
-                        fontWeight: isSelected
-                            ? FontWeight.bold
-                            : FontWeight.normal,
-                      ),
+                  )
+                else
+                  ..._allTransactions.take(5).map((tx) => _buildTransactionRow(tx)).toList(),
+                if (_allTransactions.length > 5)
+                  Center(
+                    child: TextButton(
+                      onPressed: () => _tabController.animateTo(1),
+                      child: const Text("View All History", style: TextStyle(color: Colors.blue)),
                     ),
                   ),
-                );
-              }).toList(),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1158,6 +1203,8 @@ class _LedgerScreenState extends State<LedgerScreen>
             ),
           ),
           child: TextField(
+            controller: _historySearchController,
+            enableInteractiveSelection: true,
             onChanged: (val) {
               _historySearchQuery = val;
               _applyFilters();
@@ -1461,42 +1508,49 @@ class _LedgerScreenState extends State<LedgerScreen>
                     style: TextStyle(color: Colors.grey),
                   ),
                 )
-              : ListView.builder(
-                  padding: const EdgeInsets.only(bottom: 120),
-                  physics: const BouncingScrollPhysics(),
-                  itemCount: _historyData.keys.length,
-                  itemBuilder: (context, index) {
-                    String dateKey = _historyData.keys.elementAt(index);
-                    List<Map<String, dynamic>> transactions =
-                        _historyData[dateKey]!;
+              : Scrollbar(
+                  thumbVisibility: true,
+                  thickness: 4,
+                  radius: const Radius.circular(8),
+                  child: ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(0, 0, 0, 140),
+                    physics: const AlwaysScrollableScrollPhysics(
+                      parent: BouncingScrollPhysics(),
+                    ),
+                    itemCount: _historyData.keys.length,
+                    itemBuilder: (context, index) {
+                      String dateKey = _historyData.keys.elementAt(index);
+                      List<Map<String, dynamic>> transactions =
+                          _historyData[dateKey]!;
 
-                    final isDark =
-                        Theme.of(context).brightness == Brightness.dark;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 24),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            dateKey,
-                            style: TextStyle(
-                              color: isDark ? Colors.white : Colors.black,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
+                      final isDark =
+                          Theme.of(context).brightness == Brightness.dark;
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 24),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              dateKey,
+                              style: TextStyle(
+                                color: isDark ? Colors.white : Colors.black,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 12),
-                          ...transactions
-                              .map((tx) => _buildTransactionRow(tx))
-                              .toList(),
-                          Divider(
-                            color: isDark ? Colors.white12 : Colors.black12,
-                            height: 1,
-                          ),
-                        ],
-                      ),
-                    );
-                  },
+                            const SizedBox(height: 12),
+                            ...transactions
+                                .map((tx) => _buildTransactionRow(tx))
+                                .toList(),
+                            Divider(
+                              color: isDark ? Colors.white12 : Colors.black12,
+                              height: 1,
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
                 ),
         ),
       ],
