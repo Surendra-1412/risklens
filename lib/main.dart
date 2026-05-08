@@ -13,9 +13,7 @@ import 'firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(const MyApp());
 }
 
@@ -153,7 +151,10 @@ class _ScanScreenState extends State<ScanScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final screens = [
-      HomeScreen(toggleTheme: widget.toggleTheme, isDarkMode: widget.isDarkMode),
+      HomeScreen(
+        toggleTheme: widget.toggleTheme,
+        isDarkMode: widget.isDarkMode,
+      ),
       const LedgerScreen(),
       const SizedBox.shrink(), // Scanner is now opened via Navigator.push
       const Center(child: Text("Pro Screen")),
@@ -168,7 +169,6 @@ class _ScanScreenState extends State<ScanScreen> {
               iconTheme: IconThemeData(
                 color: isDark ? Colors.white : Colors.black,
               ),
-              leading: const MenuButton(),
               actions: [
                 IconButton(
                   icon: Icon(

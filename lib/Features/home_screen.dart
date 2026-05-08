@@ -25,8 +25,10 @@ class _HomeScreenState extends State<HomeScreen> {
   String _inputType = "Unknown";
   bool _isLoading = false;
   Map<String, dynamic>? _securityData;
+  Map<String, dynamic>? _domainData;
   String? _error;
   bool _isDetailsExpanded = false;
+  bool _isDomainExpanded = false;
 
   final String _goPlusApiKey = "UStMZSdsgeMpFbkwhWpj";
   Map<String, String> get _headers => {"Authorization": _goPlusApiKey};
@@ -81,6 +83,7 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _isLoading = true;
       _securityData = null;
+      _domainData = null;
       _error = null;
     });
 
@@ -91,6 +94,7 @@ class _HomeScreenState extends State<HomeScreen> {
         await _fetchSolanaSecurity(input);
       } else if (_inputType == "URL") {
         await _fetchUrlSecurity(input);
+        await _fetchDomainData(input);
       }
     } catch (e) {
       setState(() => _error = "Unable to analyze input");
@@ -154,6 +158,68 @@ class _HomeScreenState extends State<HomeScreen> {
     } else {
       throw Exception();
     }
+  }
+
+  Future<void> _fetchDomainData(String input) async {
+    try {
+      final domain = _getDomainFromUrl(input);
+      if (domain.isEmpty) return;
+
+      final url = Uri.parse("https://rdap.org/domain/$domain");
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final events = data['events'] as List?;
+        final registrationEvent = events?.firstWhere(
+          (e) => e['eventAction'] == 'registration',
+          orElse: () => null,
+        );
+
+        if (registrationEvent != null) {
+          final creationDate = DateTime.parse(registrationEvent['eventDate']);
+          final now = DateTime.now();
+          final ageDays = now.difference(creationDate).inDays;
+
+          setState(() {
+            _domainData = {
+              "domain": domain,
+              "creationDate": _formatDate(creationDate),
+              "ageDays": ageDays,
+            };
+          });
+        }
+      }
+    } catch (_) {}
+  }
+
+  String _getDomainFromUrl(String input) {
+    try {
+      String host = input.trim();
+      if (!host.contains("://")) {
+        host = "http://$host";
+      }
+      return Uri.parse(host).host;
+    } catch (_) {
+      return "";
+    }
+  }
+
+  String _formatDate(DateTime date) {
+    const months = [
+      "January",
+      "February",
+      "March",
+      "April",
+      "May",
+      "June",
+      "July",
+      "August",
+      "September",
+      "October",
+      "November",
+      "December",
+    ];
+    return "${date.day} ${months[date.month - 1]} ${date.year}";
   }
 
   // --- STATUS HELPERS ---
@@ -250,6 +316,10 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 24),
               _buildFloatingSearchBar(isDark),
               const SizedBox(height: 32),
+              if (_domainData != null) ...[
+                _buildDomainOverviewCard(isDark),
+                const SizedBox(height: 16),
+              ],
               _buildSecurityResultCard(isDark),
               const SizedBox(height: 120),
             ],
@@ -456,7 +526,11 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    final statusColor = _getStatusColor(_securityData!['status']);
+    final borderColor = _isDetailsExpanded
+        ? (_securityData!['status'] == "Safe"
+              ? Colors.greenAccent
+              : Colors.redAccent)
+        : null;
 
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0.0, end: 1.0),
@@ -472,6 +546,7 @@ class _HomeScreenState extends State<HomeScreen> {
       },
       child: _buildResultContainer(
         isDark,
+        borderColor: borderColor,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -490,7 +565,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  _buildStatusIndicator(_securityData!['status'], statusColor),
+                  _buildStatusIndicator(
+                    _securityData!['status'],
+                    _getStatusColor(_securityData!['status']),
+                  ),
                   const Spacer(),
                   AnimatedRotation(
                     turns: _isDetailsExpanded ? 0.25 : 0.0,
@@ -533,7 +611,98 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildResultContainer(bool isDark, {required Widget child}) {
+  Widget _buildDomainOverviewCard(bool isDark) {
+    if (_domainData == null) return const SizedBox.shrink();
+
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: const Duration(milliseconds: 500),
+      builder: (context, value, child) {
+        return Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(0, 20 * (1 - value)),
+            child: child,
+          ),
+        );
+      },
+      child: _buildResultContainer(
+        isDark,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            GestureDetector(
+              onTap: () =>
+                  setState(() => _isDomainExpanded = !_isDomainExpanded),
+              behavior: HitTestBehavior.opaque,
+              child: Row(
+                children: [
+                  Text(
+                    "Domain Overview",
+                    style: GoogleFonts.quicksand(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontSize: 23,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const Spacer(),
+                  AnimatedRotation(
+                    turns: _isDomainExpanded ? 0.25 : 0.0,
+                    duration: const Duration(milliseconds: 200),
+                    child: Icon(
+                      Icons.chevron_right,
+                      color: isDark ? Colors.white54 : Colors.black45,
+                      size: 24,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            AnimatedCrossFade(
+              firstChild: const SizedBox.shrink(),
+              secondChild: Padding(
+                padding: const EdgeInsets.only(top: 24),
+                child: Column(
+                  children: [
+                    _buildDetailRow(
+                      isDark,
+                      Icons.info_outline,
+                      "WHOIS information for",
+                      _domainData!['domain'],
+                    ),
+                    const SizedBox(height: 16),
+                    _buildDetailRow(
+                      isDark,
+                      Icons.calendar_today,
+                      "Domain Creation Date",
+                      _domainData!['creationDate'],
+                    ),
+                    const SizedBox(height: 16),
+                    _buildDetailRow(
+                      isDark,
+                      Icons.hourglass_empty,
+                      "Domain Age",
+                      "${_domainData!['ageDays']} days old",
+                    ),
+                  ],
+                ),
+              ),
+              crossFadeState: _isDomainExpanded
+                  ? CrossFadeState.showSecond
+                  : CrossFadeState.showFirst,
+              duration: const Duration(milliseconds: 300),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildResultContainer(
+    bool isDark, {
+    required Widget child,
+    Color? borderColor,
+  }) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
@@ -543,9 +712,12 @@ class _HomeScreenState extends State<HomeScreen> {
             : Colors.black.withOpacity(0.12),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: isDark
-              ? Colors.white.withOpacity(0.1)
-              : Colors.black.withOpacity(0.2),
+          color:
+              borderColor ??
+              (isDark
+                  ? Colors.white.withOpacity(0.1)
+                  : Colors.black.withOpacity(0.2)),
+          width: borderColor != null ? 2 : 1,
         ),
       ),
       child: child,
@@ -589,7 +761,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           child: Icon(
             icon,
-            size: 18,
+            size: 25,
             color: isDark ? Colors.white70 : Colors.black87,
           ),
         ),
@@ -601,7 +773,7 @@ class _HomeScreenState extends State<HomeScreen> {
               label,
               style: GoogleFonts.quicksand(
                 color: isDark ? Colors.white38 : Colors.black54,
-                fontSize: 12,
+                fontSize: 17,
               ),
             ),
             const SizedBox(height: 2),
@@ -609,7 +781,7 @@ class _HomeScreenState extends State<HomeScreen> {
               value,
               style: GoogleFonts.quicksand(
                 color: isDark ? Colors.white : Colors.black,
-                fontSize: 14,
+                fontSize: 16,
                 fontWeight: FontWeight.bold,
               ),
             ),

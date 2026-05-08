@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:ui';
 import 'dart:convert';
+import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -18,6 +19,11 @@ class _LedgerScreenState extends State<LedgerScreen>
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   late TabController _tabController;
+
+  // Hint Animation State
+  int _hintIndex = 0;
+  late Timer _hintTimer;
+  final List<String> _hintLabels = ["BTC", "SOL", "ETH", "USDT", "EVM"];
 
   bool _isFocused = false;
   bool _isLoading = false;
@@ -54,6 +60,18 @@ class _LedgerScreenState extends State<LedgerScreen>
       setState(() => _isFocused = _focusNode.hasFocus);
     });
 
+    _controller.addListener(() {
+      if (mounted) setState(() {});
+    });
+
+    _hintTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+      if (mounted) {
+        setState(() {
+          _hintIndex = (_hintIndex + 1) % _hintLabels.length;
+        });
+      }
+    });
+
     if (widget.initialAddress != null) {
       _controller.text = widget.initialAddress!;
       // Use addPostFrameCallback to ensure the widget is built before fetching
@@ -68,6 +86,7 @@ class _LedgerScreenState extends State<LedgerScreen>
     _controller.dispose();
     _focusNode.dispose();
     _tabController.dispose();
+    _hintTimer.cancel();
     super.dispose();
   }
 
@@ -163,9 +182,7 @@ class _LedgerScreenState extends State<LedgerScreen>
         Uri.parse(
           "https://api.coingecko.com/api/v3/simple/price?ids=$coinId&vs_currencies=usd",
         ),
-        headers: {
-          "x-cg-demo-api-key": coinGeckoApiKey,
-        },
+        headers: {"x-cg-demo-api-key": coinGeckoApiKey},
       );
       if (res.statusCode == 200) {
         return (jsonDecode(res.body)[coinId]['usd'] as num).toDouble();
@@ -180,9 +197,7 @@ class _LedgerScreenState extends State<LedgerScreen>
         Uri.parse(
           "https://api.coingecko.com/api/v3/coins/$coinId/market_chart?vs_currency=usd&days=30&interval=daily",
         ),
-        headers: {
-          "x-cg-demo-api-key": coinGeckoApiKey,
-        },
+        headers: {"x-cg-demo-api-key": coinGeckoApiKey},
       );
 
       if (res.statusCode == 200) {
@@ -204,7 +219,11 @@ class _LedgerScreenState extends State<LedgerScreen>
 
   // ─── MAIN ENTRY POINT ──────────────────────────────────────────────────────
   Future<void> fetchWalletData() async {
-    final address = _controller.text.trim();
+    final rawAddress = _controller.text.trim();
+    String address = rawAddress;
+    if (address.contains(":")) {
+      address = address.split(":").last;
+    }
     if (address.isEmpty) return;
 
     _focusNode.unfocus();
@@ -213,7 +232,9 @@ class _LedgerScreenState extends State<LedgerScreen>
     setState(() {
       _isLoading = true;
       _hasError = false;
-      _showResults = false;
+      // Maintain showing results if we are just refreshing/switching addresses
+      // This prevents the tabs from disappearing and flickering
+      if (!_showResults) _showResults = false;
       _chartData = [];
       _allTransactions = [];
       _historyData = {};
@@ -517,36 +538,63 @@ class _LedgerScreenState extends State<LedgerScreen>
         }
 
         final data = jsonDecode(res.body);
-        final results = data['result'] as List? ?? [];
+        List results = data['result'] as List? ?? [];
+
+        // Fallback: If unified history is empty, try the standard transactions API
+        if (results.isEmpty) {
+          final fallbackRes = await http.get(
+            Uri.parse(
+              "https://deep-index.moralis.io/api/v2.2/$address?chain=$chain&limit=50",
+            ),
+            headers: {"X-API-Key": moralisApiKey, "accept": "application/json"},
+          );
+          if (fallbackRes.statusCode == 200) {
+            results = jsonDecode(fallbackRes.body)['result'] as List? ?? [];
+          }
+        }
 
         for (var tx in results) {
           String from = tx['from_address']?.toString() ?? "";
           String to = tx['to_address']?.toString() ?? "";
-          
+
           // Use native value for simple display, or use summary
           double value = 0.0;
           if (tx['value'] != null) {
             value = (double.tryParse(tx['value'].toString()) ?? 0.0) / 1e18;
           }
-          
-          bool isReceive = tx['direction'] == 'incoming' || to.toLowerCase() == address.toLowerCase();
-          DateTime time = DateTime.tryParse(tx['block_timestamp'] ?? "") ?? DateTime.now();
+
+          bool isReceive =
+              tx['direction'] == 'incoming' ||
+              to.toLowerCase() == address.toLowerCase();
+          DateTime time =
+              DateTime.tryParse(tx['block_timestamp'] ?? "") ?? DateTime.now();
 
           String category = tx['category']?.toString() ?? "Transaction";
           // Map Moralis categories to UI categories
-          if (category == "native_transfer") category = "P2P";
-          else if (category == "token_transfer") category = "Token Transfer";
-          else if (category == "contract_interaction") category = "Contract";
+          if (category == "native_transfer")
+            category = "P2P";
+          else if (category == "token_transfer")
+            category = "Token Transfer";
+          else if (category == "contract_interaction")
+            category = "Contract";
 
-          String cryptoSymbol = chain == "eth" ? "ETH" : chain == "polygon" ? "MATIC" : chain == "bsc" ? "BNB" : chain.toUpperCase();
+          String cryptoSymbol = chain == "eth"
+              ? "ETH"
+              : chain == "polygon"
+              ? "MATIC"
+              : chain == "bsc"
+              ? "BNB"
+              : chain.toUpperCase();
 
           chainTxs.add({
             "rawDate": time,
             "category": category,
+            "summary": tx['summary']?.toString() ?? "",
             "type": isReceive ? "Receive" : "Send",
             "time": _formatTime(time),
-            "amountCrypto": "${isReceive ? '+' : '-'}${value.toStringAsFixed(4)} $cryptoSymbol",
-            "amountFiat": "\$0.00", // Moralis history sometimes provides USD value, but not always consistently
+            "amountCrypto":
+                "${isReceive ? '+' : '-'}${value.toStringAsFixed(4)} $cryptoSymbol",
+            "amountFiat": "\$0.00",
             "address": isReceive ? from : to,
             "tokenSymbol": cryptoSymbol,
           });
@@ -749,16 +797,69 @@ class _LedgerScreenState extends State<LedgerScreen>
             children: [
               const SizedBox(width: 20),
               Expanded(
-                child: TextField(
-                  controller: _controller,
-                  focusNode: _focusNode,
-                  onSubmitted: (_) => fetchWalletData(),
-                  style: TextStyle(color: isDark ? Colors.white : Colors.black),
-                  decoration: const InputDecoration(
-                    hintText: "Enter wallet address (ETH, SOL...)",
-                    hintStyle: TextStyle(color: Colors.grey),
-                    border: InputBorder.none,
-                  ),
+                child: Stack(
+                  alignment: Alignment.centerLeft,
+                  children: [
+                    TextField(
+                      controller: _controller,
+                      focusNode: _focusNode,
+                      onSubmitted: (_) => fetchWalletData(),
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontSize: 19,
+                      ),
+                      decoration: const InputDecoration(
+                        hintText: "",
+                        border: InputBorder.none,
+                        isDense: true,
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                    if (_controller.text.isEmpty && !_isFocused)
+                      IgnorePointer(
+                        child: Row(
+                          children: [
+                            Text(
+                              "Enter wallet address ",
+                              style: TextStyle(
+                                color: isDark
+                                    ? Colors.white.withOpacity(0.4)
+                                    : Colors.black.withOpacity(0.4),
+                                fontSize: 19,
+                              ),
+                            ),
+                            AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 500),
+                              transitionBuilder: (child, animation) {
+                                return FadeTransition(
+                                  opacity: animation,
+                                  child: SlideTransition(
+                                    position: Tween<Offset>(
+                                      begin: const Offset(0, 0.5),
+                                      end: Offset.zero,
+                                    ).animate(CurvedAnimation(
+                                      parent: animation,
+                                      curve: Curves.easeOutCubic,
+                                    )),
+                                    child: child,
+                                  ),
+                                );
+                              },
+                              child: Text(
+                                "(${_hintLabels[_hintIndex]})",
+                                key: ValueKey(_hintLabels[_hintIndex]),
+                                style: TextStyle(
+                                  color: isDark
+                                      ? Colors.white.withOpacity(0.4)
+                                      : Colors.black.withOpacity(0.4),
+                                  fontSize: 19,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
                 ),
               ),
               GestureDetector(
@@ -1162,6 +1263,12 @@ class _LedgerScreenState extends State<LedgerScreen>
               _historySearchQuery = val;
               _applyFilters();
             },
+            onSubmitted: (val) {
+              if (_detectChain(val.trim()) != "Unknown") {
+                _controller.text = val.trim();
+                fetchWalletData();
+              }
+            },
             style: TextStyle(color: isDark ? Colors.white : Colors.black),
             decoration: InputDecoration(
               icon: Icon(
@@ -1442,62 +1549,118 @@ class _LedgerScreenState extends State<LedgerScreen>
   }
 
   Widget _buildHistoryTab() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    if (_isLoading) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(color: Colors.blue),
+            SizedBox(height: 16),
+            Text(
+              "Fetching transaction history...",
+              style: TextStyle(color: Colors.grey),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Column(
       children: [
         _buildHistoryFilters(),
         const SizedBox(height: 16),
         Expanded(
-          child: _historyData.isEmpty && _allTransactions.isEmpty
-              ? const Center(
-                  child: Text(
-                    "No transactions found",
-                    style: TextStyle(color: Colors.grey),
-                  ),
-                )
-              : _historyData.isEmpty
-              ? const Center(
-                  child: Text(
-                    "No transactions match your filters",
-                    style: TextStyle(color: Colors.grey),
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.only(bottom: 120),
-                  physics: const BouncingScrollPhysics(),
-                  itemCount: _historyData.keys.length,
-                  itemBuilder: (context, index) {
-                    String dateKey = _historyData.keys.elementAt(index);
-                    List<Map<String, dynamic>> transactions =
-                        _historyData[dateKey]!;
-
-                    final isDark =
-                        Theme.of(context).brightness == Brightness.dark;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 24),
+          child: RefreshIndicator(
+            onRefresh: fetchWalletData,
+            color: Colors.blue,
+            child: _historyData.isEmpty && _allTransactions.isEmpty
+                ? Center(
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
+                          Icon(
+                            Icons.history,
+                            size: 64,
+                            color: isDark ? Colors.white10 : Colors.black12,
+                          ),
+                          const SizedBox(height: 16),
                           Text(
-                            dateKey,
-                            style: TextStyle(
-                              color: isDark ? Colors.white : Colors.black,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
+                            "No transactions found",
+                            style: GoogleFonts.quicksand(
+                              color: Colors.grey,
+                              fontSize: 18,
                             ),
                           ),
-                          const SizedBox(height: 12),
-                          ...transactions
-                              .map((tx) => _buildTransactionRow(tx))
-                              .toList(),
-                          Divider(
-                            color: isDark ? Colors.white12 : Colors.black12,
-                            height: 1,
+                          const SizedBox(height: 8),
+                          Text(
+                            "Enter an address or pull to refresh",
+                            style: GoogleFonts.quicksand(
+                              color: Colors.grey.withOpacity(0.5),
+                              fontSize: 14,
+                            ),
                           ),
                         ],
                       ),
-                    );
-                  },
-                ),
+                    ),
+                  )
+                : _historyData.isEmpty
+                ? const Center(
+                    child: Text(
+                      "No transactions match your filters",
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.only(bottom: 120),
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    itemCount: _historyData.keys.length,
+                    itemBuilder: (context, index) {
+                      String dateKey = _historyData.keys.elementAt(index);
+                      List<Map<String, dynamic>> transactions =
+                          _historyData[dateKey]!;
+
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 32),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? Colors.white.withOpacity(0.05)
+                                    : Colors.black.withOpacity(0.05),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                dateKey.toUpperCase(),
+                                style: GoogleFonts.quicksand(
+                                  color: isDark
+                                      ? Colors.white60
+                                      : Colors.black54,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 1.2,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            ...transactions
+                                .map((tx) => _buildTransactionRow(tx))
+                                .toList(),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+          ),
         ),
       ],
     );
@@ -1506,84 +1669,68 @@ class _LedgerScreenState extends State<LedgerScreen>
   Widget _buildTransactionRow(Map<String, dynamic> tx) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     bool isReceive = tx['type'] == 'Receive';
-    String cryptoSymbol =
-        tx['tokenSymbol'] ??
-        (_chain == "Solana" ? "SOL" : (_chain == "Bitcoin" ? "BTC" : "ETH"));
-    String iconUrl = _chain == "Solana"
-        ? "https://cryptologos.cc/logos/solana-sol-logo.png"
-        : _chain == "Bitcoin"
-        ? "https://cryptologos.cc/logos/bitcoin-btc-logo.png"
-        : "https://cryptologos.cc/logos/ethereum-eth-logo.png";
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.only(bottom: 24),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Left: Icon + Time
-          Column(
-            children: [
-              Container(
-                height: 40,
-                width: 40,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: isDark ? Colors.white24 : Colors.black12,
-                    width: 1,
-                  ),
-                ),
-                child: Icon(
-                  isReceive ? Icons.arrow_downward : Icons.arrow_upward,
-                  color: isReceive
-                      ? Colors.greenAccent
-                      : (isDark ? Colors.white : Colors.black54),
-                  size: 20,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                tx['time'],
-                style: const TextStyle(color: Colors.grey, fontSize: 10),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                tx['category'],
-                style: const TextStyle(color: Colors.blueAccent, fontSize: 8),
-                textAlign: TextAlign.center,
-              ),
-            ],
+          // Left: Status Icon
+          Container(
+            height: 48,
+            width: 48,
+            decoration: BoxDecoration(
+              color: isReceive
+                  ? Colors.greenAccent.withOpacity(0.1)
+                  : (isDark
+                        ? Colors.white.withOpacity(0.05)
+                        : Colors.black.withOpacity(0.05)),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              isReceive ? Icons.south_west : Icons.north_east,
+              color: isReceive
+                  ? Colors.greenAccent
+                  : (isDark ? Colors.white70 : Colors.black87),
+              size: 20,
+            ),
           ),
           const SizedBox(width: 16),
-          // Center: Token + Amount
+          // Center: Title + Subtitle
           Expanded(
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Image.network(
-                  iconUrl,
-                  width: 20,
-                  height: 20,
-                  errorBuilder: (context, error, stackTrace) =>
-                      const Icon(Icons.circle, size: 20, color: Colors.blue),
+                Text(
+                  tx['summary'] != null && tx['summary'].isNotEmpty
+                      ? tx['summary']
+                      : (tx['category'] == "P2P"
+                            ? (isReceive ? "Received" : "Sent")
+                            : tx['category']),
+                  style: GoogleFonts.quicksand(
+                    color: isDark ? Colors.white : Colors.black,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(width: 8),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                const SizedBox(height: 4),
+                Row(
                   children: [
                     Text(
-                      tx['amountCrypto'],
-                      style: TextStyle(
-                        color: isReceive
-                            ? Colors.greenAccent
-                            : (isDark ? Colors.white : Colors.black),
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
+                      isReceive ? "From: " : "To: ",
+                      style: GoogleFonts.quicksand(
+                        color: Colors.grey,
+                        fontSize: 12,
                       ),
                     ),
-                    const SizedBox(height: 4),
                     Text(
-                      tx['amountFiat'],
-                      style: const TextStyle(color: Colors.grey, fontSize: 12),
+                      _shortenAddress(tx['address']),
+                      style: GoogleFonts.quicksand(
+                        color: Colors.blueAccent,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ],
                 ),
