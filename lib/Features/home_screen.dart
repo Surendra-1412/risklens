@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:ui';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:google_fonts/google_fonts.dart';
+import 'menu.dart';
+import 'profile_screen_new.dart';
 
 class HomeScreen extends StatefulWidget {
   final VoidCallback toggleTheme;
@@ -115,6 +118,7 @@ class _HomeScreenState extends State<HomeScreen> {
           "type": "Wallet",
           "status": _getWalletStatus(data['result']),
           "details": _formatWalletDetails(data['result']),
+          "analysis": _getRiskAnalysis(data['result'], "Wallet"),
         },
       );
     } else {
@@ -134,6 +138,7 @@ class _HomeScreenState extends State<HomeScreen> {
           "type": "Wallet",
           "status": _getWalletStatus(data['result']),
           "details": _formatWalletDetails(data['result']),
+          "analysis": _getRiskAnalysis(data['result'], "Wallet"),
         },
       );
     } else {
@@ -153,6 +158,7 @@ class _HomeScreenState extends State<HomeScreen> {
           "type": "URL",
           "status": _getUrlStatus(data['result']),
           "details": _formatUrlDetails(data['result']),
+          "analysis": _getRiskAnalysis(data['result'], "URL"),
         },
       );
     } else {
@@ -223,6 +229,35 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // --- STATUS HELPERS ---
+
+  String _getRiskAnalysis(dynamic result, String type) {
+    if (result == null) return "No risk data available for this input.";
+    
+    List<String> reasons = [];
+    
+    if (type == "Wallet") {
+      if (result['honeypot_related'] == "1") reasons.add("associated with honeypot tokens (tokens that cannot be sold)");
+      if (result['blacklisted'] == "1") reasons.add("flagged on multiple security blacklists");
+      if (result['malicious_address'] == "1") reasons.add("linked to known malicious or fraudulent activity");
+      
+      if (reasons.isEmpty) {
+        return "This address has no known malicious history and appears safe for interaction based on current security intelligence.";
+      } else {
+        return "Warning: This address is considered risky because it is ${reasons.join(", and ")}. Interacting with it may lead to loss of funds.";
+      }
+    } else if (type == "URL") {
+      if (result['phishing_site'] == "1") reasons.add("identified as a phishing site designed to steal credentials");
+      if (result['malicious_site'] == "1") reasons.add("flagged as containing malicious scripts or malware");
+      
+      if (reasons.isEmpty) {
+        return "This URL is currently not flagged by any major security providers and appears safe to visit.";
+      } else {
+        return "Caution: This site is highly dangerous as it has been ${reasons.join(" and ")}. Avoid entering any sensitive information.";
+      }
+    }
+    
+    return "Analysis complete. No immediate threats detected.";
+  }
 
   String _getWalletStatus(dynamic result) {
     if (result == null) return "Safe";
@@ -301,6 +336,63 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: const MenuButton(),
+        title: Text(
+          "RiskLens",
+          style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+        ),
+        iconTheme: IconThemeData(
+          color: isDark ? Colors.white : Colors.black,
+        ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Center(
+              child: GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const ProfileScreen(),
+                    ),
+                  );
+                },
+                child: Container(
+                  height: 43,
+                  width: 43,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.blue.withOpacity(0.5),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: CircleAvatar(
+                    radius: 20.5,
+                    backgroundColor: isDark ? Colors.white12 : Colors.black12,
+                    child: Text(
+                      (FirebaseAuth.instance.currentUser?.displayName ??
+                              FirebaseAuth.instance.currentUser?.email ??
+                              "U")
+                          .substring(0, 1)
+                          .toUpperCase(),
+                      style: TextStyle(
+                        color: isDark ? Colors.white70 : Colors.black87,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 19,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
       backgroundColor: isDark
           ? const Color(0xFF121212)
           : const Color(0xFFF5F5F7),
@@ -353,6 +445,22 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.blue,
+                  borderRadius: BorderRadius.circular(30),
+                ),
+                child: Text(
+                  "Hello, ${FirebaseAuth.instance.currentUser?.displayName?.split(' ')[0] ?? 'User'}!",
+                  style: GoogleFonts.quicksand(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
               RichText(
                 text: TextSpan(
                   style: TextStyle(
@@ -582,6 +690,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
             ),
+            const SizedBox(height: 20),
+            _buildAnalysisCard(isDark),
             AnimatedCrossFade(
               firstChild: const SizedBox.shrink(),
               secondChild: Padding(
@@ -694,6 +804,58 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildAnalysisCard(bool isDark) {
+    if (_securityData?['analysis'] == null) return const SizedBox.shrink();
+    
+    final status = _securityData!['status'];
+    final statusColor = _getStatusColor(status);
+    
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withOpacity(0.03) : Colors.black.withOpacity(0.03),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                status == "Safe" ? Icons.verified_user : Icons.gpp_maybe,
+                color: statusColor,
+                size: 20,
+              ),
+              const SizedBox(width: 10),
+              Text(
+                "Risk Analysis Summary",
+                style: GoogleFonts.quicksand(
+                  color: isDark ? Colors.white70 : Colors.black87,
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            _securityData!['analysis'],
+            style: GoogleFonts.quicksand(
+              color: isDark ? Colors.white60 : Colors.black54,
+              fontSize: 14,
+              height: 1.5,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'dart:ui';
 import 'dart:convert';
 import 'dart:async';
+import 'dart:math';
 import 'package:http/http.dart' as http;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'historytab.dart';
 
 class LedgerScreen extends StatefulWidget {
   final String? initialAddress;
@@ -17,6 +19,7 @@ class LedgerScreen extends StatefulWidget {
 class _LedgerScreenState extends State<LedgerScreen>
     with SingleTickerProviderStateMixin {
   final TextEditingController _controller = TextEditingController();
+
   final FocusNode _focusNode = FocusNode();
   late TabController _tabController;
 
@@ -39,13 +42,7 @@ class _LedgerScreenState extends State<LedgerScreen>
 
   List<FlSpot> _chartData = [];
 
-  // History Filter State
-  List<Map<String, dynamic>> _allTransactions = [];
-  Map<String, List<Map<String, dynamic>>> _historyData = {};
-  String _historySearchQuery = "";
-  DateTime? _historyFilterDate;
-  String _historyFilterType = "All";
-  String _historyFilterDirection = "All";
+  // History state is now handled by HistoryTab widget.
 
   final String moralisApiKey =
       "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6ImYyMTE4N2MxLTE4NzAtNDU0MC1hYzIwLTc3NTc4NDRhYjFjNCIsIm9yZ0lkIjoiNTEzODg4IiwidXNlcklkIjoiNTI4ODExIiwidHlwZUlkIjoiOTQ2YTI0ZGMtODdkNC00YzNiLTlmN2UtNTQzZjA3MDc2OTAyIiwidHlwZSI6IlBST0pFQ1QiLCJpYXQiOjE3Nzc3Mzg0NzMsImV4cCI6NDkzMzQ5ODQ3M30.MRhG1_u1iLfLPI77pteOnlpyQgvNyaDTzt2hm1hwOZA";
@@ -148,29 +145,28 @@ class _LedgerScreenState extends State<LedgerScreen>
 
   // ─── CHAIN DETECTION ───────────────────────────────────────────────────────
   String _detectChain(String address) {
-    final len = address.length;
+    final cleanAddr = address.trim();
+    final lowAddr = cleanAddr.toLowerCase();
+    final len = cleanAddr.length;
 
-    // EVM: unambiguous — 0x prefix + exactly 40 hex chars
-    if (address.startsWith("0x") && len == 42) return "Ethereum";
+    // EVM: 0x prefix + 40 hex chars (standard) or just 42 chars total
+    if (lowAddr.startsWith("0x") && len == 42) return "Ethereum";
 
-    // Bitcoin bech32 (native segwit): bc1 prefix — unambiguous
-    if (address.startsWith("bc1")) return "Bitcoin";
+    // Bitcoin bech32
+    if (lowAddr.startsWith("bc1")) return "Bitcoin";
 
-    // Solana: ALWAYS 44 chars, Base58, no 0x — check this BEFORE BTC prefix rules
-    // because SOL addresses can start with 1, 2, 3, etc.
-    if (len == 44 && !address.startsWith("0x")) return "Solana";
+    // Solana: Usually 32-44 chars, base58
+    if (len >= 32 &&
+        len <= 44 &&
+        !lowAddr.startsWith("0x") &&
+        !lowAddr.startsWith("bc1")) {
+      // Very likely Solana if it's not EVM or BTC bech32
+      return "Solana";
+    }
 
-    // Solana can rarely be 43 chars — still check before BTC prefix
-    if (len == 43 && !address.startsWith("0x")) return "Solana";
-
-    // Bitcoin legacy (P2PKH): starts with 1, length 26-34
-    if (address.startsWith("1") && len >= 26 && len <= 34) return "Bitcoin";
-
-    // Bitcoin P2SH: starts with 3, length 26-35
-    if (address.startsWith("3") && len >= 26 && len <= 35) return "Bitcoin";
-
-    // Any remaining Base58 32-50 chars — treat as Solana
-    if (!address.startsWith("0x") && len >= 32 && len <= 50) return "Solana";
+    // Bitcoin legacy
+    if (cleanAddr.startsWith("1") && len >= 26 && len <= 34) return "Bitcoin";
+    if (cleanAddr.startsWith("3") && len >= 26 && len <= 35) return "Bitcoin";
 
     return "Unknown";
   }
@@ -236,12 +232,12 @@ class _LedgerScreenState extends State<LedgerScreen>
       // This prevents the tabs from disappearing and flickering
       if (!_showResults) _showResults = false;
       _chartData = [];
-      _allTransactions = [];
-      _historyData = {};
       _chain = detectedChain;
       _balance = "0.00";
       _errorMessage = "Failed to load portfolio data";
     });
+
+    debugPrint("Detected chain: $detectedChain for address: $address");
 
     try {
       // Run fetching in parallel for better performance
@@ -250,7 +246,7 @@ class _LedgerScreenState extends State<LedgerScreen>
 
       await Future.wait([
         _fetchBalance(address, detectedChain),
-        _fetchTransactions(address, detectedChain),
+        // _fetchTransactions moved to HistoryTab
         _fetchCoinGeckoChart(coinId),
         _updatePrice(detectedChain),
       ]);
@@ -290,56 +286,84 @@ class _LedgerScreenState extends State<LedgerScreen>
   }
 
   Future<void> _fetchEvmBalance(String address) async {
-    // Try unified Net Worth API first (most accurate)
+    debugPrint("Fetching EVM balance for $address...");
+    final String baseUrl = "https://deep-index.moralis.io/api/v2";
+    final Map<String, String> headers = {
+      "X-API-Key": moralisApiKey,
+      "accept": "application/json"
+    };
+
+    double totalNetWorthUsd = 0.0;
+
     try {
-      final res = await http.get(
-        Uri.parse(
-          "https://deep-index.moralis.io/api/v2.2/wallets/$address/net-worth",
-        ),
-        headers: {"X-API-Key": moralisApiKey, "accept": "application/json"},
+      // 1. Native Balance
+      final nativeRes = await http.get(
+        Uri.parse("$baseUrl/$address/balance?chain=eth"),
+        headers: headers,
       );
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        double nw =
-            double.tryParse(data['total_networth_usd']?.toString() ?? "0") ?? 0;
-        if (nw > 0) {
-          _balance = nw.toStringAsFixed(2);
-          return;
+
+      if (nativeRes.statusCode == 200) {
+        final nativeData = jsonDecode(nativeRes.body);
+        double ethBalance = (double.tryParse(nativeData['balance']?.toString() ?? "0") ?? 0) / 1e18;
+
+        if (ethBalance > 0) {
+          // Fetch ETH price
+          try {
+            final priceRes = await http.get(
+              Uri.parse("$baseUrl/erc20/0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2/price?chain=eth"), // WETH
+              headers: headers,
+            );
+            if (priceRes.statusCode == 200) {
+              double ethPrice = (jsonDecode(priceRes.body)['usdPrice'] as num?)?.toDouble() ?? 0.0;
+              totalNetWorthUsd += (ethBalance * ethPrice);
+            }
+          } catch (_) {}
         }
       }
+
+      // 2. Token Balances
+      final tokenRes = await http.get(
+        Uri.parse("$baseUrl/$address/erc20?chain=eth"),
+        headers: headers,
+      );
+
+      if (tokenRes.statusCode == 200) {
+        final List tokens = jsonDecode(tokenRes.body);
+        final List<Future<void>> priceFutures = [];
+
+        for (var token in tokens) {
+          final String tokenAddress = token['token_address'] ?? "";
+          if (tokenAddress.isEmpty) continue;
+
+          final int decimals = int.tryParse(token['decimals']?.toString() ?? "18") ?? 18;
+          final double balance = (double.tryParse(token['balance']?.toString() ?? "0") ?? 0) / pow(10, decimals);
+
+          if (balance > 0) {
+            priceFutures.add(() async {
+              try {
+                final priceRes = await http.get(
+                  Uri.parse("$baseUrl/erc20/$tokenAddress/price?chain=eth"),
+                  headers: headers,
+                );
+                if (priceRes.statusCode == 200) {
+                  double price = (jsonDecode(priceRes.body)['usdPrice'] as num?)?.toDouble() ?? 0.0;
+                  totalNetWorthUsd += (balance * price);
+                }
+              } catch (_) {}
+            }());
+          }
+        }
+
+        await Future.wait(priceFutures);
+      }
+
+      setState(() {
+        _balance = totalNetWorthUsd.toStringAsFixed(2);
+      });
+
     } catch (e) {
       debugPrint("Net Worth API error: $e");
     }
-
-    // Fallback: aggregate ETH balance from all EVM chains
-    double totalEth = 0;
-    for (var chain in [
-      "eth",
-      "polygon",
-      "bsc",
-      "arbitrum",
-      "optimism",
-      "base",
-    ]) {
-      try {
-        final res = await http.get(
-          Uri.parse(
-            "https://deep-index.moralis.io/api/v2.2/$address/balance?chain=$chain",
-          ),
-          headers: {"X-API-Key": moralisApiKey, "accept": "application/json"},
-        );
-        if (res.statusCode == 200) {
-          totalEth +=
-              (double.tryParse(
-                    jsonDecode(res.body)['balance']?.toString() ?? "0",
-                  ) ??
-                  0) /
-              1e18;
-        }
-      } catch (_) {}
-    }
-    final ethPrice = await _fetchPrice("ethereum");
-    _balance = (totalEth * ethPrice).toStringAsFixed(2);
   }
 
   Future<void> _fetchSolanaBalance(String address) async {
@@ -393,271 +417,7 @@ class _LedgerScreenState extends State<LedgerScreen>
     _balance = "0.00";
   }
 
-  // ─── TRANSACTION FETCHING ──────────────────────────────────────────────────
-  Future<void> _fetchTransactions(String address, String chain) async {
-    List<Map<String, dynamic>> tempTxs = [];
-
-    try {
-      if (chain == "Bitcoin") {
-        tempTxs = await _fetchBitcoinTxs(address);
-      } else if (chain == "Solana") {
-        tempTxs = await _fetchSolanaTxs(address);
-      } else if (chain == "Ethereum") {
-        tempTxs = await _fetchEvmTxs(address);
-      }
-    } catch (e) {
-      debugPrint("Transaction fetch error: $e");
-    }
-
-    tempTxs.sort(
-      (a, b) => (b['rawDate'] as DateTime).compareTo(a['rawDate'] as DateTime),
-    );
-    _allTransactions = tempTxs;
-    _applyFilters();
-  }
-
-  Future<List<Map<String, dynamic>>> _fetchBitcoinTxs(String address) async {
-    List<Map<String, dynamic>> txs = [];
-    try {
-      final res = await http.get(
-        Uri.parse("https://mempool.space/api/address/$address/txs"),
-      );
-      if (res.statusCode != 200) return txs;
-      final data = jsonDecode(res.body) as List? ?? [];
-
-      for (var tx in data) {
-        int vinSum = 0, voutSum = 0;
-        for (var vin in (tx['vin'] as List? ?? [])) {
-          if (vin['prevout']?['scriptpubkey_address'] == address) {
-            vinSum += (vin['prevout']?['value'] ?? 0) as int;
-          }
-        }
-        for (var vout in (tx['vout'] as List? ?? [])) {
-          if (vout['scriptpubkey_address'] == address) {
-            voutSum += (vout['value'] ?? 0) as int;
-          }
-        }
-
-        int net = voutSum - vinSum;
-        if (net == 0) continue;
-
-        double amount = net / 100000000;
-        bool isReceive = net > 0;
-        int blockTime = tx['status']?['block_time'] ?? 0;
-        DateTime time = blockTime > 0
-            ? DateTime.fromMillisecondsSinceEpoch(blockTime * 1000)
-            : DateTime.now();
-
-        txs.add({
-          "rawDate": time,
-          "category": "P2P",
-          "type": isReceive ? "Receive" : "Send",
-          "time": _formatTime(time),
-          "amountCrypto":
-              "${isReceive ? '+' : ''}${amount.toStringAsFixed(6)} BTC",
-          "amountFiat": "\$0.00",
-          "address": isReceive ? "External Address" : "External Address",
-          "tokenSymbol": "BTC",
-        });
-      }
-    } catch (e) {
-      debugPrint("Bitcoin TX error: $e");
-    }
-    return txs;
-  }
-
-  Future<List<Map<String, dynamic>>> _fetchSolanaTxs(String address) async {
-    List<Map<String, dynamic>> txs = [];
-    try {
-      final res = await http.get(
-        Uri.parse(
-          "https://solana-gateway.moralis.io/account/mainnet/$address/transactions",
-        ),
-        headers: {"X-API-Key": moralisApiKey, "accept": "application/json"},
-      );
-      if (res.statusCode != 200) return txs;
-
-      final data = jsonDecode(res.body);
-      final list = data is List ? data : (data['result'] as List? ?? []);
-
-      for (var tx in list) {
-        // Parse native SOL transfers
-        final nativeTransfers = tx['nativeTransfers'] as List? ?? [];
-        for (var transfer in nativeTransfers) {
-          double amount =
-              (double.tryParse(transfer['amount']?.toString() ?? "0") ?? 0) /
-              1e9;
-          if (amount <= 0) continue;
-          String from = transfer['from']?.toString() ?? "";
-          String to = transfer['to']?.toString() ?? "";
-          bool isReceive = to == address;
-
-          // Parse timestamp - Moralis returns Unix seconds
-          int blockTime = tx['blockTime'] ?? tx['block_time'] ?? 0;
-          DateTime time = blockTime > 0
-              ? DateTime.fromMillisecondsSinceEpoch(blockTime * 1000)
-              : DateTime.now();
-
-          txs.add({
-            "rawDate": time,
-            "category": "P2P",
-            "type": isReceive ? "Receive" : "Send",
-            "time": _formatTime(time),
-            "amountCrypto":
-                "${isReceive ? '+' : '-'}${amount.toStringAsFixed(4)} SOL",
-            "amountFiat": "\$0.00",
-            "address": isReceive ? from : to,
-            "tokenSymbol": "SOL",
-          });
-        }
-      }
-    } catch (e) {
-      debugPrint("Solana TX error: $e");
-    }
-    return txs;
-  }
-
-  Future<List<Map<String, dynamic>>> _fetchEvmTxs(String address) async {
-    List<Map<String, dynamic>> txs = [];
-    final chains = ["eth", "polygon", "bsc", "arbitrum", "optimism", "base"];
-
-    List<Future<List<Map<String, dynamic>>>> futures = chains.map((
-      chain,
-    ) async {
-      List<Map<String, dynamic>> chainTxs = [];
-      try {
-        final res = await http.get(
-          Uri.parse(
-            "https://deep-index.moralis.io/api/v2.2/wallets/$address/history?chain=$chain&limit=25",
-          ),
-          headers: {"X-API-Key": moralisApiKey, "accept": "application/json"},
-        );
-        if (res.statusCode != 200) {
-          debugPrint("Moralis API Error (${res.statusCode}): ${res.body}");
-          return chainTxs;
-        }
-
-        final data = jsonDecode(res.body);
-        List results = data['result'] as List? ?? [];
-
-        // Fallback: If unified history is empty, try the standard transactions API
-        if (results.isEmpty) {
-          final fallbackRes = await http.get(
-            Uri.parse(
-              "https://deep-index.moralis.io/api/v2.2/$address?chain=$chain&limit=50",
-            ),
-            headers: {"X-API-Key": moralisApiKey, "accept": "application/json"},
-          );
-          if (fallbackRes.statusCode == 200) {
-            results = jsonDecode(fallbackRes.body)['result'] as List? ?? [];
-          }
-        }
-
-        for (var tx in results) {
-          String from = tx['from_address']?.toString() ?? "";
-          String to = tx['to_address']?.toString() ?? "";
-
-          // Use native value for simple display, or use summary
-          double value = 0.0;
-          if (tx['value'] != null) {
-            value = (double.tryParse(tx['value'].toString()) ?? 0.0) / 1e18;
-          }
-
-          bool isReceive =
-              tx['direction'] == 'incoming' ||
-              to.toLowerCase() == address.toLowerCase();
-          DateTime time =
-              DateTime.tryParse(tx['block_timestamp'] ?? "") ?? DateTime.now();
-
-          String category = tx['category']?.toString() ?? "Transaction";
-          // Map Moralis categories to UI categories
-          if (category == "native_transfer")
-            category = "P2P";
-          else if (category == "token_transfer")
-            category = "Token Transfer";
-          else if (category == "contract_interaction")
-            category = "Contract";
-
-          String cryptoSymbol = chain == "eth"
-              ? "ETH"
-              : chain == "polygon"
-              ? "MATIC"
-              : chain == "bsc"
-              ? "BNB"
-              : chain.toUpperCase();
-
-          chainTxs.add({
-            "rawDate": time,
-            "category": category,
-            "summary": tx['summary']?.toString() ?? "",
-            "type": isReceive ? "Receive" : "Send",
-            "time": _formatTime(time),
-            "amountCrypto":
-                "${isReceive ? '+' : '-'}${value.toStringAsFixed(4)} $cryptoSymbol",
-            "amountFiat": "\$0.00",
-            "address": isReceive ? from : to,
-            "tokenSymbol": cryptoSymbol,
-          });
-        }
-      } catch (e) {
-        debugPrint("EVM TX error ($chain): $e");
-      }
-      return chainTxs;
-    }).toList();
-
-    final results = await Future.wait(futures);
-    for (var r in results) txs.addAll(r);
-    return txs;
-  }
-
-  // ─── LEGACY WRAPPER (kept for compatibility) ───────────────────────────────
-  Future<void> _fetchMoralisData(String address) async {}
-  Future<void> _fetchMoralisTransactions(
-    String address,
-    bool isSolana,
-    bool isBitcoin,
-    bool isEVM, {
-    Map<String, dynamic>? btcData,
-  }) async {}
-
-  // ─── FILTER LOGIC ──────────────────────────────────────────────────────────
-  void _applyFilters() {
-    List<Map<String, dynamic>> filtered = _allTransactions.where((tx) {
-      if (_historySearchQuery.isNotEmpty) {
-        String q = _historySearchQuery.toLowerCase();
-        bool matchesAddress = (tx['address'] ?? "").toLowerCase().contains(q);
-        bool matchesToken = (tx['tokenSymbol'] ?? "").toLowerCase().contains(q);
-        if (!matchesAddress && !matchesToken) return false;
-      }
-      if (_historyFilterDate != null) {
-        DateTime txDate = tx['rawDate'] as DateTime;
-        if (txDate.year != _historyFilterDate!.year ||
-            txDate.month != _historyFilterDate!.month ||
-            txDate.day != _historyFilterDate!.day)
-          return false;
-      }
-      if (_historyFilterType != "All") {
-        if (tx['category'] != _historyFilterType) return false;
-      }
-      if (_historyFilterDirection != "All") {
-        if (_historyFilterDirection == "Sent" && tx['type'] == "Receive")
-          return false;
-        if (_historyFilterDirection == "Received" && tx['type'] == "Send")
-          return false;
-      }
-      return true;
-    }).toList();
-
-    Map<String, List<Map<String, dynamic>>> grouped = {};
-    for (var tx in filtered) {
-      String dateStr = _formatDate(tx['rawDate']);
-      grouped.putIfAbsent(dateStr, () => []).add(tx);
-    }
-
-    setState(() {
-      _historyData = grouped;
-    });
-  }
+  // Transaction fetching and filtering moved to HistoryTab.dart
 
   Future<void> _fetchCovalentGraph(String address, int chainId) async {
     final url = Uri.parse(
@@ -797,69 +557,16 @@ class _LedgerScreenState extends State<LedgerScreen>
             children: [
               const SizedBox(width: 20),
               Expanded(
-                child: Stack(
-                  alignment: Alignment.centerLeft,
-                  children: [
-                    TextField(
-                      controller: _controller,
-                      focusNode: _focusNode,
-                      onSubmitted: (_) => fetchWalletData(),
-                      style: TextStyle(
-                        color: isDark ? Colors.white : Colors.black,
-                        fontSize: 19,
-                      ),
-                      decoration: const InputDecoration(
-                        hintText: "",
-                        border: InputBorder.none,
-                        isDense: true,
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                    if (_controller.text.isEmpty && !_isFocused)
-                      IgnorePointer(
-                        child: Row(
-                          children: [
-                            Text(
-                              "Enter wallet address ",
-                              style: TextStyle(
-                                color: isDark
-                                    ? Colors.white.withOpacity(0.4)
-                                    : Colors.black.withOpacity(0.4),
-                                fontSize: 19,
-                              ),
-                            ),
-                            AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 500),
-                              transitionBuilder: (child, animation) {
-                                return FadeTransition(
-                                  opacity: animation,
-                                  child: SlideTransition(
-                                    position: Tween<Offset>(
-                                      begin: const Offset(0, 0.5),
-                                      end: Offset.zero,
-                                    ).animate(CurvedAnimation(
-                                      parent: animation,
-                                      curve: Curves.easeOutCubic,
-                                    )),
-                                    child: child,
-                                  ),
-                                );
-                              },
-                              child: Text(
-                                "(${_hintLabels[_hintIndex]})",
-                                key: ValueKey(_hintLabels[_hintIndex]),
-                                style: TextStyle(
-                                  color: isDark
-                                      ? Colors.white.withOpacity(0.4)
-                                      : Colors.black.withOpacity(0.4),
-                                  fontSize: 19,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
+                child: TextField(
+                  controller: _controller,
+                  focusNode: _focusNode,
+                  onSubmitted: (_) => fetchWalletData(),
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                  decoration: const InputDecoration(
+                    hintText: "Enter wallet address (ETH, SOL...)",
+                    hintStyle: TextStyle(color: Colors.grey),
+                    border: InputBorder.none,
+                  ),
                 ),
               ),
               GestureDetector(
@@ -1053,6 +760,7 @@ class _LedgerScreenState extends State<LedgerScreen>
     final url = logoUrls[_chain];
     final color = chainColors[_chain] ?? Colors.blue;
     final symbol = chainSymbols[_chain] ?? "◈";
+    final label = _chain == "Unknown" ? "?" : _chain.substring(0, 1);
 
     final fallback = Container(
       width: size,
@@ -1060,7 +768,7 @@ class _LedgerScreenState extends State<LedgerScreen>
       decoration: BoxDecoration(color: color, shape: BoxShape.circle),
       child: Center(
         child: Text(
-          symbol,
+          symbol.length == 1 ? symbol : label,
           style: TextStyle(
             fontSize: size * 0.45,
             color: Colors.white,
@@ -1086,584 +794,178 @@ class _LedgerScreenState extends State<LedgerScreen>
   Widget _buildPortfolioTab() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return SingleChildScrollView(
-      padding: const EdgeInsets.only(bottom: 120),
+      padding: const EdgeInsets.only(bottom: 140),
       physics: const BouncingScrollPhysics(),
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: isDark
-              ? Colors.white.withOpacity(0.05)
-              : Colors.black.withOpacity(0.05),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-            color: isDark
-                ? Colors.white.withOpacity(0.1)
-                : Colors.black.withOpacity(0.1),
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Column(
+        children: [
+          // Performance & Balance Card
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withOpacity(0.05)
+                  : Colors.black.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withOpacity(0.1)
+                    : Colors.black.withOpacity(0.1),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  "Performance",
-                  style: GoogleFonts.quicksand(
-                    color: isDark ? Colors.white : Colors.black,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
                 Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    if (_showPriceInfo)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isDark ? Colors.grey[850] : Colors.grey[100],
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: isDark ? Colors.white12 : Colors.black12,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _buildChainLogo(size: 14),
-                            const SizedBox(width: 6),
-                            Text(
-                              "${_currentPrice.toStringAsFixed(2)}\$",
-                              style: GoogleFonts.quicksand(
-                                color: isDark ? Colors.white : Colors.black,
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
+                    Text(
+                      "Performance",
+                      style: GoogleFonts.quicksand(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        if (_showPriceInfo)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? Colors.grey[850]
+                                  : Colors.grey[100],
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isDark ? Colors.white12 : Colors.black12,
                               ),
                             ),
-                          ],
-                        ),
-                      ),
-                    const SizedBox(width: 8),
-                    GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          _showPriceInfo = !_showPriceInfo;
-                        });
-                        if (_showPriceInfo) {
-                          Future.delayed(const Duration(seconds: 4), () {
-                            if (mounted) {
-                              setState(() => _showPriceInfo = false);
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _buildChainLogo(size: 14),
+                                const SizedBox(width: 6),
+                                Text(
+                                  "${_currentPrice.toStringAsFixed(2)}\$",
+                                  style: GoogleFonts.quicksand(
+                                    color: isDark ? Colors.white : Colors.black,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: () {
+                            setState(() => _showPriceInfo = !_showPriceInfo);
+                            if (_showPriceInfo) {
+                              Future.delayed(const Duration(seconds: 4), () {
+                                if (mounted)
+                                  setState(() => _showPriceInfo = false);
+                              });
                             }
-                          });
-                        }
-                      },
-                      child: Icon(
-                        Icons.info_outline,
-                        color: (isDark ? Colors.white : Colors.black)
-                            .withOpacity(0.5),
-                        size: 20,
+                          },
+                          child: Icon(
+                            Icons.info_outline,
+                            color: (isDark ? Colors.white : Colors.black)
+                                .withOpacity(0.5),
+                            size: 20,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    _buildChainLogo(),
+                    const SizedBox(width: 12),
+                    Text(
+                      "\$$_balance",
+                      style: GoogleFonts.quicksand(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontSize: 36,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ],
                 ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                _buildChainLogo(),
-                const SizedBox(width: 12),
-                Text(
-                  "\$$_balance",
-                  style: GoogleFonts.quicksand(
-                    color: isDark ? Colors.white : Colors.black,
-                    fontSize: 36,
-                    fontWeight: FontWeight.bold,
+                const SizedBox(height: 4),
+                const Text(
+                  "+0.11% (\$0.00)",
+                  style: TextStyle(
+                    color: Colors.greenAccent,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
                   ),
+                ),
+                const SizedBox(height: 24),
+                SizedBox(height: 200, child: _buildGraph()),
+                const SizedBox(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: ["1H", "1D", "1W", "1M", "1Y", "Max"].map((filter) {
+                    bool isSelected = _selectedTimeFilter == filter;
+                    return GestureDetector(
+                      onTap: () => setState(() => _selectedTimeFilter = filter),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? (isDark
+                                    ? const Color(0xFF2A2A2A)
+                                    : Colors.blue.withOpacity(0.1))
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          filter,
+                          style: GoogleFonts.quicksand(
+                            color: isSelected
+                                ? (isDark ? Colors.white : Colors.blue)
+                                : Colors.grey,
+                            fontWeight: isSelected
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
                 ),
               ],
             ),
-            const SizedBox(height: 4),
-            const Text(
-              "+0.11% (\$0.00)",
-              style: TextStyle(
-                color: Colors.greenAccent,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(height: 32),
-            SizedBox(height: 200, child: _buildGraph()),
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: ["1H", "1D", "1W", "1M", "1Y", "Max"].map((filter) {
-                bool isSelected = _selectedTimeFilter == filter;
-                return GestureDetector(
-                  onTap: () => setState(() => _selectedTimeFilter = filter),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? (isDark
-                                ? const Color(0xFF2A2A2A)
-                                : Colors.blue.withOpacity(0.1))
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      filter,
-                      style: GoogleFonts.quicksand(
-                        color: isSelected
-                            ? (isDark ? Colors.white : Colors.blue)
-                            : Colors.grey,
-                        fontWeight: isSelected
-                            ? FontWeight.bold
-                            : FontWeight.normal,
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
   // --- FILTER UI & BOTTOM SHEETS ---
 
-  Widget _buildHistoryFilters() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Column(
-      children: [
-        // Search Bar
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          decoration: BoxDecoration(
-            color: isDark
-                ? Colors.white.withOpacity(0.05)
-                : Colors.black.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: isDark
-                  ? Colors.white.withOpacity(0.1)
-                  : Colors.black.withOpacity(0.1),
-            ),
-          ),
-          child: TextField(
-            onChanged: (val) {
-              _historySearchQuery = val;
-              _applyFilters();
-            },
-            onSubmitted: (val) {
-              if (_detectChain(val.trim()) != "Unknown") {
-                _controller.text = val.trim();
-                fetchWalletData();
-              }
-            },
-            style: TextStyle(color: isDark ? Colors.white : Colors.black),
-            decoration: InputDecoration(
-              icon: Icon(
-                Icons.search,
-                color: isDark ? Colors.white70 : Colors.black54,
-                size: 24,
-              ),
-              hintText: "Search address, protocol, asset...",
-              hintStyle: TextStyle(
-                color: isDark ? Colors.grey : Colors.grey.shade700,
-                fontSize: 18,
-              ),
-              border: InputBorder.none,
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        // Filter Row
-        Row(
-          children: [
-            _buildFilterButton(
-              "All dates",
-              _historyFilterDate != null
-                  ? _formatDate(_historyFilterDate!)
-                  : null,
-              _showDateFilterModal,
-            ),
-            const SizedBox(width: 8),
-            _buildFilterButton(
-              "Type",
-              _historyFilterType == "All" ? null : _historyFilterType,
-              _showTypeFilterModal,
-            ),
-            const SizedBox(width: 8),
-            _buildFilterButton(
-              "Direction",
-              _historyFilterDirection == "All" ? null : _historyFilterDirection,
-              _showDirectionFilterModal,
-            ),
-          ],
-        ),
-      ],
-    );
-  }
+  // Modals moved below for clarity, but UI code is now in HistoryTab widget.
 
-  Widget _buildFilterButton(
-    String defaultText,
-    String? selectedText,
-    VoidCallback onTap,
-  ) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    bool isSelected = selectedText != null;
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-          decoration: BoxDecoration(
-            color: isSelected
-                ? Colors.blue.withOpacity(0.2)
-                : (isDark
-                      ? Colors.white.withOpacity(0.05)
-                      : Colors.black.withOpacity(0.05)),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isSelected
-                  ? Colors.blue
-                  : (isDark
-                        ? Colors.white.withOpacity(0.1)
-                        : Colors.black.withOpacity(0.1)),
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // Balanced spacer to match the icon on the right
-              const SizedBox(width: 18),
-              Expanded(
-                child: Text(
-                  isSelected ? selectedText : defaultText,
-                  style: GoogleFonts.quicksand(
-                    color: isSelected
-                        ? Colors.blue
-                        : (isDark ? Colors.grey : Colors.grey.shade700),
-                    fontSize: 15,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                ),
-              ),
-              const SizedBox(width: 4),
-              Icon(
-                Icons.keyboard_arrow_down,
-                color: isSelected
-                    ? Colors.blue
-                    : (isDark ? Colors.grey : Colors.grey.shade700),
-                size: 14,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  // Filter modals moved to HistoryTab.dart
 
-  void _showDateFilterModal() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return Container(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ListTile(
-                    title: Text(
-                      "All Dates",
-                      style: TextStyle(
-                        color: isDark ? Colors.white : Colors.black,
-                      ),
-                    ),
-                    leading: Icon(
-                      _historyFilterDate == null
-                          ? Icons.radio_button_checked
-                          : Icons.radio_button_unchecked,
-                      color: _historyFilterDate == null
-                          ? Colors.blue
-                          : Colors.grey,
-                    ),
-                    onTap: () {
-                      setState(() {
-                        _historyFilterDate = null;
-                        _applyFilters();
-                      });
-                      Navigator.pop(context);
-                    },
-                  ),
-                  Divider(color: isDark ? Colors.white12 : Colors.black12),
-                  SizedBox(
-                    height: 300,
-                    child: Theme(
-                      data: isDark
-                          ? ThemeData.dark().copyWith(
-                              colorScheme: const ColorScheme.dark(
-                                primary: Colors.blue,
-                                onPrimary: Colors.white,
-                                surface: Color(0xFF1E1E1E),
-                                onSurface: Colors.white,
-                              ),
-                            )
-                          : ThemeData.light().copyWith(
-                              colorScheme: const ColorScheme.light(
-                                primary: Colors.blue,
-                                onPrimary: Colors.white,
-                                surface: Colors.white,
-                                onSurface: Colors.black,
-                              ),
-                            ),
-                      child: CalendarDatePicker(
-                        initialDate: _historyFilterDate ?? DateTime.now(),
-                        firstDate: DateTime(2000),
-                        lastDate: DateTime.now(),
-                        onDateChanged: (date) {
-                          setState(() {
-                            _historyFilterDate = date;
-                            _applyFilters();
-                          });
-                          Navigator.pop(context);
-                        },
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  void _showTypeFilterModal() {
-    final types = [
-      "All",
-      "P2P",
-      "Swaps",
-      "NFT",
-      "Approvals",
-      "Smart Contract Interactions",
-    ];
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: types.map((type) {
-              bool isSelected = _historyFilterType == type;
-              return ListTile(
-                title: Text(
-                  type,
-                  style: TextStyle(color: isDark ? Colors.white : Colors.black),
-                ),
-                leading: Icon(
-                  isSelected
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_unchecked,
-                  color: isSelected ? Colors.blue : Colors.grey,
-                ),
-                onTap: () {
-                  setState(() {
-                    _historyFilterType = type;
-                    _applyFilters();
-                  });
-                  Navigator.pop(context);
-                },
-              );
-            }).toList(),
-          ),
-        );
-      },
-    );
-  }
-
-  void _showDirectionFilterModal() {
-    final directions = ["All", "Received", "Sent"];
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: directions.map((dir) {
-              return ListTile(
-                title: Text(dir, style: const TextStyle(color: Colors.white)),
-                leading: Icon(
-                  _historyFilterDirection == dir
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_unchecked,
-                  color: _historyFilterDirection == dir
-                      ? Colors.blue
-                      : Colors.grey,
-                ),
-                onTap: () {
-                  setState(() {
-                    _historyFilterDirection = dir;
-                    _applyFilters();
-                  });
-                  Navigator.pop(context);
-                },
-              );
-            }).toList(),
-          ),
-        );
-      },
-    );
-  }
+  // Modal filter logic has been moved to HistoryTab.dart
 
   Widget _buildHistoryTab() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    if (_isLoading) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(color: Colors.blue),
-            SizedBox(height: 16),
-            Text(
-              "Fetching transaction history...",
-              style: TextStyle(color: Colors.grey),
-            ),
-          ],
-        ),
-      );
+    final rawAddress = _controller.text.trim();
+    String address = rawAddress;
+    if (address.contains(":")) {
+      address = address.split(":").last;
     }
 
-    return Column(
-      children: [
-        _buildHistoryFilters(),
-        const SizedBox(height: 16),
-        Expanded(
-          child: RefreshIndicator(
-            onRefresh: fetchWalletData,
-            color: Colors.blue,
-            child: _historyData.isEmpty && _allTransactions.isEmpty
-                ? Center(
-                    child: SingleChildScrollView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.history,
-                            size: 64,
-                            color: isDark ? Colors.white10 : Colors.black12,
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            "No transactions found",
-                            style: GoogleFonts.quicksand(
-                              color: Colors.grey,
-                              fontSize: 18,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            "Enter an address or pull to refresh",
-                            style: GoogleFonts.quicksand(
-                              color: Colors.grey.withOpacity(0.5),
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
-                : _historyData.isEmpty
-                ? const Center(
-                    child: Text(
-                      "No transactions match your filters",
-                      style: TextStyle(color: Colors.grey),
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.only(bottom: 120),
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    itemCount: _historyData.keys.length,
-                    itemBuilder: (context, index) {
-                      String dateKey = _historyData.keys.elementAt(index);
-                      List<Map<String, dynamic>> transactions =
-                          _historyData[dateKey]!;
-
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 32),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                color: isDark
-                                    ? Colors.white.withOpacity(0.05)
-                                    : Colors.black.withOpacity(0.05),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Text(
-                                dateKey.toUpperCase(),
-                                style: GoogleFonts.quicksand(
-                                  color: isDark
-                                      ? Colors.white60
-                                      : Colors.black54,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 1.2,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            ...transactions
-                                .map((tx) => _buildTransactionRow(tx))
-                                .toList(),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ),
-      ],
-    );
+    return HistoryTab(address: address, chain: _chain);
   }
 
   Widget _buildTransactionRow(Map<String, dynamic> tx) {

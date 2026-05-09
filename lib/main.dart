@@ -9,6 +9,7 @@ import 'Features/ledger_screen.dart';
 import 'Features/scanner_screen.dart';
 import 'Features/home_screen.dart';
 import 'Features/menu.dart';
+import 'Features/pro_screen.dart';
 import 'firebase_options.dart';
 
 void main() async {
@@ -55,7 +56,14 @@ class _MyAppState extends State<MyApp> {
             );
           }
           if (snapshot.hasData) {
-            return ScanScreen(toggleTheme: toggleTheme, isDarkMode: isDarkMode);
+            final user = snapshot.data;
+            if (user != null && user.emailVerified) {
+              return ScanScreen(
+                toggleTheme: toggleTheme,
+                isDarkMode: isDarkMode,
+              );
+            }
+            return const AuthScreen();
           }
           return const AuthScreen();
         },
@@ -157,29 +165,12 @@ class _ScanScreenState extends State<ScanScreen> {
       ),
       const LedgerScreen(),
       const SizedBox.shrink(), // Scanner is now opened via Navigator.push
-      const Center(child: Text("Pro Screen")),
+      const ProScreen(),
       const Center(child: Text("News Screen")),
     ];
 
     return Scaffold(
-      appBar: selectedIndex == 0
-          ? AppBar(
-              backgroundColor: Colors.transparent,
-              elevation: 0,
-              iconTheme: IconThemeData(
-                color: isDark ? Colors.white : Colors.black,
-              ),
-              actions: [
-                IconButton(
-                  icon: Icon(
-                    widget.isDarkMode ? Icons.light_mode : Icons.dark_mode,
-                  ),
-                  onPressed: widget.toggleTheme,
-                ),
-                const SizedBox(width: 8),
-              ],
-            )
-          : null,
+      appBar: null,
       drawer: const AppDrawer(),
       extendBodyBehindAppBar: true,
       extendBody: true,
