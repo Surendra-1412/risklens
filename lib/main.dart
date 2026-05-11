@@ -10,6 +10,7 @@ import 'Features/scanner_screen.dart';
 import 'Features/home_screen.dart';
 import 'Features/menu.dart';
 import 'Features/pro_screen.dart';
+import 'package:risklens/Features/news_screen.dart';
 import 'firebase_options.dart';
 
 void main() async {
@@ -166,7 +167,7 @@ class _ScanScreenState extends State<ScanScreen> {
       const LedgerScreen(),
       const SizedBox.shrink(), // Scanner is now opened via Navigator.push
       const ProScreen(),
-      const Center(child: Text("News Screen")),
+      const NewsScreen(),
     ];
 
     return Scaffold(

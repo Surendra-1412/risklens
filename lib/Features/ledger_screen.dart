@@ -90,7 +90,7 @@ class _LedgerScreenState extends State<LedgerScreen>
     final lowAddr = cleanAddr.toLowerCase();
     final len = cleanAddr.length;
  
-    if (lowAddr.startsWith("0x") && len == 42) return "Ethereum";
+    if (lowAddr.startsWith("0x") && len == 42) return "EVM";
     if (lowAddr.startsWith("bc1")) return "Bitcoin";
     if (cleanAddr.startsWith("1") && len >= 26 && len <= 34) return "Bitcoin";
     if (cleanAddr.startsWith("3") && len >= 26 && len <= 35) return "Bitcoin";
@@ -197,6 +197,7 @@ class _LedgerScreenState extends State<LedgerScreen>
       case "Solana":   return "solana";
       case "Bitcoin":  return "bitcoin";
       case "Ethereum": return "ethereum";
+      case "EVM":      return "ethereum";
       default:         return "ethereum";
     }
   }
@@ -207,7 +208,7 @@ class _LedgerScreenState extends State<LedgerScreen>
  
   // ─── BALANCE FETCHING ────────────────────────────────────────────────────
   Future<void> _fetchBalance(String address, String chain) async {
-    if (chain == "Ethereum") {
+    if (chain == "Ethereum" || chain == "EVM") {
       await _fetchEvmBalance(address);
     } else if (chain == "Solana") {
       await _fetchSolanaBalance(address);
@@ -216,100 +217,101 @@ class _LedgerScreenState extends State<LedgerScreen>
     }
   }
  
-  // ── EVM: native ETH balance via Moralis, multiply by price ────────────────
+  // ── EVM: native & ERC-20 balances via Moralis (Multi-chain) ────────────────
   Future<void> _fetchEvmBalance(String address) async {
-    debugPrint("Fetching EVM balance for $address...");
+    debugPrint("Fetching EVM multi-chain balance for $address...");
     try {
-      // 1. Fetch native ETH balance
-      final nativeRes = await http.get(
-        Uri.parse(
-            "https://deep-index.moralis.io/api/v2/$address/balance?chain=eth"),
-        headers: {"X-API-Key": moralisApiKey, "accept": "application/json"},
-      );
- 
       double totalUsd = 0.0;
+      final evmChains = ["eth", "bsc", "polygon", "arbitrum", "optimism", "base"];
+
+      final Map<String, String> chainToNativeCoinId = {
+        "eth": "ethereum",
+        "bsc": "binancecoin",
+        "polygon": "matic-network",
+        "arbitrum": "ethereum",
+        "optimism": "ethereum",
+        "base": "ethereum",
+      };
+
+      final Map<String, String> symbolToId = {
+        "USDT":  "tether",
+        "USDC":  "usd-coin",
+        "DAI":   "dai",
+        "WBTC":  "wrapped-bitcoin",
+        "LINK":  "chainlink",
+        "UNI":   "uniswap",
+        "AAVE":  "aave",
+        "MATIC": "matic-network",
+        "BNB":   "binancecoin",
+        "SHIB":  "shiba-inu",
+        "PEPE":  "pepe",
+      };
  
-      if (nativeRes.statusCode == 200) {
-        final nativeData = jsonDecode(nativeRes.body);
-        double weiBalance =
-            double.tryParse(nativeData['balance']?.toString() ?? "0") ?? 0;
-        double ethBalance = weiBalance / 1e18;
- 
-        if (ethBalance > 0) {
-          double ethPrice = await _fetchPrice("ethereum");
-          totalUsd += ethBalance * ethPrice;
-          debugPrint("ETH balance: $ethBalance × \$$ethPrice = \$$totalUsd");
-        }
-      } else {
-        debugPrint("Native balance status: ${nativeRes.statusCode}");
-      }
- 
-      // 2. Fetch ERC-20 token balances (best-effort; don't block on failure)
-      try {
-        final tokenRes = await http.get(
-          Uri.parse(
-              "https://deep-index.moralis.io/api/v2/$address/erc20?chain=eth"),
-          headers: {"X-API-Key": moralisApiKey, "accept": "application/json"},
-        );
- 
-        if (tokenRes.statusCode == 200) {
-          final List tokens = jsonDecode(tokenRes.body);
- 
-          // Only price tokens that have a known USD price from CoinGecko
-          final Map<String, String> symbolToId = {
-            "USDT":  "tether",
-            "USDC":  "usd-coin",
-            "DAI":   "dai",
-            "WBTC":  "wrapped-bitcoin",
-            "LINK":  "chainlink",
-            "UNI":   "uniswap",
-            "AAVE":  "aave",
-            "MATIC": "matic-network",
-            "BNB":   "binancecoin",
-            "SHIB":  "shiba-inu",
-            "PEPE":  "pepe",
-          };
- 
-          // Collect unique coin IDs needed
-          Set<String> idsNeeded = {};
-          List<Map<String, dynamic>> enriched = [];
- 
-          for (var token in tokens) {
-            final int decimals =
-                int.tryParse(token['decimals']?.toString() ?? "18") ?? 18;
-            final double balance =
-                (double.tryParse(token['balance']?.toString() ?? "0") ?? 0) /
-                    pow(10, decimals);
-            final String symbol =
-                (token['symbol']?.toString() ?? "").toUpperCase();
-            final String? coinId = symbolToId[symbol];
-            if (balance > 0 && coinId != null) {
-              idsNeeded.add(coinId);
-              enriched.add({"symbol": symbol, "balance": balance, "coinId": coinId});
-            }
-          }
- 
-          // Batch price fetch via CoinGecko simple price
-          if (idsNeeded.isNotEmpty) {
-            final String ids = idsNeeded.join(",");
-            final pricesRes = await http.get(
-              Uri.parse(
-                  "https://api.coingecko.com/api/v3/simple/price?ids=$ids&vs_currencies=usd"),
-              headers: {"x-cg-demo-api-key": coinGeckoApiKey},
+      Set<String> idsNeeded = {};
+      List<Map<String, dynamic>> enriched = [];
+
+      // We run balance fetches in parallel
+      List<Future<void>> tasks = [];
+
+      for (String chain in evmChains) {
+        tasks.add((() async {
+          try {
+            // 1. Fetch native balance
+            final nativeRes = await http.get(
+              Uri.parse("https://deep-index.moralis.io/api/v2/$address/balance?chain=$chain"),
+              headers: {"X-API-Key": moralisApiKey, "accept": "application/json"},
             );
-            if (pricesRes.statusCode == 200) {
-              final pricesData = jsonDecode(pricesRes.body);
-              for (var item in enriched) {
-                final price =
-                    (pricesData[item['coinId']]?['usd'] as num?)?.toDouble() ??
-                        0.0;
-                totalUsd += (item['balance'] as double) * price;
+            if (nativeRes.statusCode == 200) {
+              final nativeData = jsonDecode(nativeRes.body);
+              double weiBalance = double.tryParse(nativeData['balance']?.toString() ?? "0") ?? 0;
+              double balance = weiBalance / 1e18;
+              if (balance > 0) {
+                String coinId = chainToNativeCoinId[chain]!;
+                idsNeeded.add(coinId);
+                enriched.add({"symbol": "Native-$chain", "balance": balance, "coinId": coinId});
               }
             }
+
+            // 2. Fetch ERC-20 token balances
+            final tokenRes = await http.get(
+              Uri.parse("https://deep-index.moralis.io/api/v2/$address/erc20?chain=$chain"),
+              headers: {"X-API-Key": moralisApiKey, "accept": "application/json"},
+            );
+            if (tokenRes.statusCode == 200) {
+              final List tokens = jsonDecode(tokenRes.body);
+              for (var token in tokens) {
+                final int decimals = int.tryParse(token['decimals']?.toString() ?? "18") ?? 18;
+                final double balance = (double.tryParse(token['balance']?.toString() ?? "0") ?? 0) / pow(10, decimals);
+                final String symbol = (token['symbol']?.toString() ?? "").toUpperCase();
+                final String? coinId = symbolToId[symbol];
+                if (balance > 0 && coinId != null) {
+                  idsNeeded.add(coinId);
+                  enriched.add({"symbol": symbol, "balance": balance, "coinId": coinId});
+                }
+              }
+            }
+          } catch (e) {
+            debugPrint("Balance fetch error for chain $chain: $e");
+          }
+        })());
+      }
+
+      await Future.wait(tasks);
+
+      // Batch price fetch via CoinGecko simple price
+      if (idsNeeded.isNotEmpty) {
+        final String ids = idsNeeded.join(",");
+        final pricesRes = await http.get(
+          Uri.parse("https://api.coingecko.com/api/v3/simple/price?ids=$ids&vs_currencies=usd"),
+          headers: {"x-cg-demo-api-key": coinGeckoApiKey},
+        );
+        if (pricesRes.statusCode == 200) {
+          final pricesData = jsonDecode(pricesRes.body);
+          for (var item in enriched) {
+            final price = (pricesData[item['coinId']]?['usd'] as num?)?.toDouble() ?? 0.0;
+            totalUsd += (item['balance'] as double) * price;
           }
         }
-      } catch (e) {
-        debugPrint("Token balance error (non-fatal): $e");
       }
  
       if (mounted) {
@@ -686,16 +688,20 @@ class _LedgerScreenState extends State<LedgerScreen>
           "https://coin-images.coingecko.com/coins/images/1/large/bitcoin.png",
       "Ethereum":
           "https://coin-images.coingecko.com/coins/images/279/large/ethereum.png",
+      "EVM":
+          "https://coin-images.coingecko.com/coins/images/279/large/ethereum.png",
     };
     final Map<String, Color> chainColors = {
       "Solana": const Color(0xFF9945FF),
       "Bitcoin": const Color(0xFFF7931A),
       "Ethereum": const Color(0xFF627EEA),
+      "EVM": const Color(0xFF627EEA),
     };
     final Map<String, String> chainSymbols = {
       "Solana": "◎",
       "Bitcoin": "₿",
       "Ethereum": "Ξ",
+      "EVM": "Ξ",
     };
  
     final url = logoUrls[_chain];
