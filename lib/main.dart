@@ -1,21 +1,22 @@
 import 'package:flutter/material.dart';
 import 'dart:ui';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 
-import 'Features/auth_screen.dart';
 import 'Features/ledger_screen.dart';
 import 'Features/scanner_screen.dart';
 import 'Features/home_screen.dart';
 import 'Features/menu.dart';
+import 'Features/news_screen.dart';
 import 'Features/pro_screen.dart';
-import 'package:risklens/Features/news_screen.dart';
-import 'firebase_options.dart';
+import 'Features/settings_screen.dart';
+import 'translation_service.dart';
+
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await dotenv.load(fileName: ".env");
   runApp(const MyApp());
 }
 
@@ -37,38 +38,41 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData.light().copyWith(
-        scaffoldBackgroundColor: const Color(0xFFFFFBFE),
-        canvasColor: const Color(0xFFFFFBFE),
-      ),
-      darkTheme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xFF121212),
-        canvasColor: const Color(0xFF121212),
-      ),
-      themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
-      home: StreamBuilder<User?>(
-        stream: FirebaseAuth.instance.authStateChanges(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            );
-          }
-          if (snapshot.hasData) {
-            final user = snapshot.data;
-            if (user != null && user.emailVerified) {
-              return ScanScreen(
+    return ScreenUtilInit(
+      designSize: const Size(375, 812),
+      minTextAdapt: true,
+      splitScreenMode: true,
+      builder: (context, child) {
+        return ValueListenableBuilder<String>(
+          valueListenable: currentLanguage,
+          builder: (context, lang, child) {
+            return MaterialApp(
+              debugShowCheckedModeBanner: false,
+              builder: (context, child) {
+                return MediaQuery(
+                  data: MediaQuery.of(
+                    context,
+                  ).copyWith(textScaler: const TextScaler.linear(1.0)),
+                  child: child!,
+                );
+              },
+              theme: ThemeData.light().copyWith(
+                scaffoldBackgroundColor: const Color(0xFFFFFBFE),
+                canvasColor: const Color(0xFFFFFBFE),
+              ),
+              darkTheme: ThemeData.dark().copyWith(
+                scaffoldBackgroundColor: const Color(0xFF121212),
+                canvasColor: const Color(0xFF121212),
+              ),
+              themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
+              home: ScanScreen(
                 toggleTheme: toggleTheme,
                 isDarkMode: isDarkMode,
-              );
-            }
-            return const AuthScreen();
-          }
-          return const AuthScreen();
-        },
-      ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }
@@ -89,36 +93,44 @@ class ScanScreen extends StatefulWidget {
 
 class _ScanScreenState extends State<ScanScreen> {
   int selectedIndex = 0;
+  String? trackingAddress;
 
   Widget navItem(IconData icon, String label, int index) {
     final isActive = selectedIndex == index;
 
     return GestureDetector(
-      onTap: () => setState(() => selectedIndex = index),
+      onTap: () {
+        setState(() {
+          if (index == 1) {
+            trackingAddress = null; // Clear auto-scan address on manual tab click
+          }
+          selectedIndex = index;
+        });
+      },
       behavior: HitTestBehavior.opaque,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           AnimatedContainer(
             duration: const Duration(milliseconds: 200),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 4.h),
             decoration: BoxDecoration(
               color: isActive
                   ? Colors.blue.withOpacity(0.2)
                   : Colors.transparent,
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(20.r),
             ),
             child: Icon(
               icon,
-              size: 36,
+              size: 32.w,
               color: isActive ? Colors.blue : Colors.grey,
             ),
           ),
-          const SizedBox(height: 4),
+          SizedBox(height: 4.h),
           Text(
             label,
             style: TextStyle(
-              fontSize: 17,
+              fontSize: 17.sp,
               fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
               color: isActive ? Colors.blue : Colors.grey,
             ),
@@ -140,11 +152,11 @@ class _ScanScreenState extends State<ScanScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            height: 70,
-            width: 70,
-            decoration: const BoxDecoration(
+            height: 70.h,
+            width: 70.w,
+            decoration: BoxDecoration(
               shape: BoxShape.circle,
-              image: DecorationImage(
+              image: const DecorationImage(
                 image: AssetImage('icon.png'),
                 fit: BoxFit.cover,
               ),
@@ -163,25 +175,36 @@ class _ScanScreenState extends State<ScanScreen> {
       HomeScreen(
         toggleTheme: widget.toggleTheme,
         isDarkMode: widget.isDarkMode,
+        onTrackRequested: (addr) {
+          setState(() {
+            trackingAddress = addr;
+            selectedIndex = 1;
+          });
+        },
       ),
-      const LedgerScreen(),
-      const SizedBox.shrink(), // Scanner is now opened via Navigator.push
-      const ProScreen(),
+      LedgerScreen(
+        key: ValueKey(trackingAddress), // Force rebuild when address changes
+        toggleTheme: widget.toggleTheme,
+        isDarkMode: widget.isDarkMode,
+        initialAddress: trackingAddress,
+      ),
+      const SizedBox.shrink(), // Placeholder for center button (Scanner)
+      const SimulationScreen(),
       const NewsScreen(),
     ];
 
     return Scaffold(
       appBar: null,
-      drawer: const AppDrawer(),
       extendBodyBehindAppBar: true,
       extendBody: true,
       body: screens[selectedIndex],
       bottomNavigationBar: Padding(
-        padding: const EdgeInsets.only(bottom: 20, left: 16, right: 16),
+        padding: EdgeInsets.only(bottom: 10.h, left: 3.w, right: 3.w),
         child: SizedBox(
-          height: 90,
+          height: 75
+              .h, // Changed from MediaQuery logic back to fixed responsive height for consistency
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(38),
+            borderRadius: BorderRadius.circular(20.r),
             child: BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
               child: Container(
@@ -189,21 +212,22 @@ class _ScanScreenState extends State<ScanScreen> {
                   color: isDark
                       ? Colors.grey.withOpacity(0.2)
                       : Colors.grey.withOpacity(0.4),
-                  borderRadius: BorderRadius.circular(28),
+                  borderRadius: BorderRadius.circular(28.r),
                   border: Border.all(
                     color: isDark
                         ? Colors.white.withOpacity(0.1)
                         : Colors.black.withOpacity(0.15),
+                    width: 1.w,
                   ),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
-                    navItem(Icons.home, "Home", 0),
-                    navItem(Icons.visibility, "Track", 1),
+                    navItem(Icons.home, t("home"), 0),
+                    navItem(Icons.visibility, t("track"), 1),
                     reportItem(), // ✅ now inside row
-                    navItem(Icons.workspace_premium, "Pro", 3),
-                    navItem(Icons.public, "News", 4),
+                    navItem(Icons.view_in_ar, "Simu", 3),
+                    navItem(Icons.public, t("news"), 4),
                   ],
                 ),
               ),

@@ -1,15 +1,27 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'dart:math';
+import 'dart:async';
+import '../wallet/wallet.dart';
 
 class HistoryTab extends StatefulWidget {
   final String address;
   final String chain;
+  final WalletScanSnapshot? scanSnapshot;
+  final WalletApiCredentials? apiCredentials;
 
-  const HistoryTab({super.key, required this.address, required this.chain});
+  const HistoryTab({
+    super.key,
+    required this.address,
+    required this.chain,
+    this.scanSnapshot,
+    this.apiCredentials,
+  });
 
   @override
   State<HistoryTab> createState() => _HistoryTabState();
@@ -18,9 +30,6 @@ class HistoryTab extends StatefulWidget {
 class _HistoryTabState extends State<HistoryTab> {
   // ── API Keys ──────────────────────────────────────────────────────────────
   // Use the FULL key (with typeId) from ledgerscreen.dart
-  static const String _moralisApiKey =
-      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6ImYyMTE4N2MxLTE4NzAtNDU0MC1hYzIwLTc3NTc4NDRhYjFjNCIsIm9yZ0lkIjoiNTEzODg4IiwidXNlcklkIjoiNTI4ODExIiwidHlwZUlkIjoiOTQ2YTI0ZGMtODdkNC00YzNiLTlmN2UtNTQzZjA3MDc2OTAyIiwidHlwZSI6IlBST0pFQ1QiLCJpYXQiOjE3Nzc3Mzg0NzMsImV4cCI6NDkzMzQ5ODQ3M30.MRhG1_u1iLfLPI77pteOnlpyQgvNyaDTzt2hm1hwOZA";
-  static const String _coinGeckoApiKey = "CG-aZWy4YFQ6YGD98ookZCRghDF";
 
   // Public Solana RPC — free, no API key required
   static const String _solanaRpc = "https://api.mainnet-beta.solana.com";
@@ -30,6 +39,16 @@ class _HistoryTabState extends State<HistoryTab> {
   List<Map<String, dynamic>> _allTransactions = [];
   Map<String, List<Map<String, dynamic>>> _groupedTransactions = {};
   Map<String, double> _tokenPrices = {};
+
+  int _loadingStep = 0;
+  Timer? _loadingTimer;
+  final List<String> _loadingMessages = [
+    "Fetching transactions...",
+    "Verifying hashes...",
+    "Decoding block data...",
+    "Syncing history...",
+    "Almost complete...",
+  ];
 
   // Filters
   DateTime? _selectedDate;
@@ -66,6 +85,18 @@ class _HistoryTabState extends State<HistoryTab> {
       _statusMessage = "Fetching ${widget.chain} history…";
       _allTransactions = [];
       _groupedTransactions = {};
+      _loadingStep = 0;
+    });
+
+    _loadingTimer?.cancel();
+    _loadingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted && _isLoading) {
+        setState(() {
+          _loadingStep = (_loadingStep + 1) % _loadingMessages.length;
+        });
+      } else {
+        timer.cancel();
+      }
     });
 
     try {
@@ -96,6 +127,7 @@ class _HistoryTabState extends State<HistoryTab> {
     await _fetchTokenPrices();
     if (!mounted) return;
     _applyFilters();
+    _loadingTimer?.cancel();
     setState(() {
       _isLoading = false;
       if (_allTransactions.isEmpty) {
@@ -116,7 +148,11 @@ class _HistoryTabState extends State<HistoryTab> {
       // Step 1: get recent signatures
       final sigRes = await http.post(
         Uri.parse(_solanaRpc),
-        headers: {"Content-Type": "application/json"},
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "RiskLens/1.0"
+        },
         body: jsonEncode({
           "jsonrpc": "2.0",
           "id": 1,
@@ -177,7 +213,11 @@ class _HistoryTabState extends State<HistoryTab> {
 
       final txRes = await http.post(
         Uri.parse(_solanaRpc),
-        headers: {"Content-Type": "application/json"},
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "User-Agent": "RiskLens/1.0"
+        },
         body: jsonEncode(batch),
       );
 
@@ -194,7 +234,15 @@ class _HistoryTabState extends State<HistoryTab> {
       final List<Map<String, dynamic>> parsed = [];
 
       for (final result in txResults) {
-        if (result == null || result['result'] == null) continue;
+        if (result == null) {
+          debugPrint("Solana batch item is null");
+          continue;
+        }
+        if (result['result'] == null) {
+          debugPrint("Solana getTransaction returned null for signature: ${result['id']}");
+          continue;
+        }
+        
         final tx = result['result'] as Map<String, dynamic>;
         final sig = result['id'] as String;
 
@@ -214,22 +262,28 @@ class _HistoryTabState extends State<HistoryTab> {
 
         // Find index of our address
         int myIdx = -1;
+        debugPrint("Searching for address ${widget.address} in ${accountKeys.length} keys");
         for (int i = 0; i < accountKeys.length; i++) {
           final key = accountKeys[i];
           final String pubkey = key is Map
               ? (key['pubkey']?.toString() ?? '')
               : key.toString();
-          // Use exact matching for Solana
+          
           if (pubkey == widget.address) {
             myIdx = i;
             break;
           }
         }
 
-        if (myIdx < 0 ||
-            myIdx >= preBalances.length ||
-            myIdx >= postBalances.length)
+        if (myIdx < 0) {
+          debugPrint("Address ${widget.address} not found in transaction $sig");
           continue;
+        }
+        
+        if (myIdx >= preBalances.length || myIdx >= postBalances.length) {
+          debugPrint("Balance index out of range for address ${widget.address} in $sig");
+          continue;
+        }
 
         final double pre = (preBalances[myIdx] as num).toDouble();
         final double post = (postBalances[myIdx] as num).toDouble();
@@ -296,110 +350,11 @@ class _HistoryTabState extends State<HistoryTab> {
 
   // ─── EVM via Moralis ─────────────────────────────────────────────────────
   Future<void> _fetchEvmHistory() async {
-    const baseUrl = "https://deep-index.moralis.io/api/v2";
-    final headers = {"X-API-Key": _moralisApiKey, "accept": "application/json"};
-
-    final evmChains = ["eth", "bsc", "polygon", "arbitrum", "optimism", "base"];
-    debugPrint("Fetching EVM multi-chain history for ${widget.address}");
-
-    try {
-      final List<Map<String, dynamic>> combined = [];
-      List<Future<void>> tasks = [];
-
-      for (String chain in evmChains) {
-        tasks.add(
-          (() async {
-            try {
-              final nativeRes = await http.get(
-                Uri.parse("$baseUrl/${widget.address}?chain=$chain"),
-                headers: headers,
-              );
-              if (nativeRes.statusCode == 200) {
-                final data = jsonDecode(nativeRes.body);
-                final List txs = data['result'] ?? [];
-                for (var tx in txs) {
-                  final from = tx['from_address']?.toString() ?? "";
-                  final to = tx['to_address']?.toString() ?? "";
-                  final value =
-                      double.tryParse(tx['value']?.toString() ?? "0") ?? 0;
-                  final ts =
-                      DateTime.tryParse(tx['block_timestamp'] ?? "") ??
-                      DateTime.now();
-                  final double eth = value / 1e18;
-                  combined.add({
-                    "from": from,
-                    "to": to,
-                    "value": eth,
-                    "symbol": _getChainSymbol(chain),
-                    "timestamp": ts,
-                    "hash": tx['hash'] ?? "",
-                  });
-                }
-              }
-            } catch (e) {
-              debugPrint("Native history error for $chain: $e");
-            }
-          })(),
-        );
-
-        tasks.add(
-          (() async {
-            try {
-              final erc20Res = await http.get(
-                Uri.parse(
-                  "$baseUrl/${widget.address}/erc20/transfers?chain=$chain",
-                ),
-                headers: headers,
-              );
-              if (erc20Res.statusCode == 200) {
-                final data = jsonDecode(erc20Res.body);
-                final List txs = data['result'] ?? [];
-                for (var tx in txs) {
-                  final from = tx['from_address']?.toString() ?? "";
-                  final to = tx['to_address']?.toString() ?? "";
-                  final raw =
-                      double.tryParse(tx['value']?.toString() ?? "0") ?? 0;
-                  final int dec =
-                      int.tryParse(tx['token_decimals']?.toString() ?? "18") ??
-                      18;
-                  final String sym = tx['token_symbol']?.toString() ?? "ERC20";
-                  final ts =
-                      DateTime.tryParse(tx['block_timestamp'] ?? "") ??
-                      DateTime.now();
-                  final double amount = raw / pow(10, dec);
-                  combined.add({
-                    "from": from,
-                    "to": to,
-                    "value": amount,
-                    "symbol": sym,
-                    "timestamp": ts,
-                    "hash": tx['transaction_hash'] ?? "",
-                  });
-                }
-              }
-            } catch (e) {
-              debugPrint("ERC20 history error for $chain: $e");
-            }
-          })(),
-        );
-      }
-
-      await Future.wait(tasks);
-
-      // Sort newest first
-      combined.sort((a, b) {
-        final DateTime ta = a['timestamp'];
-        final DateTime tb = b['timestamp'];
-        return tb.compareTo(ta);
-      });
-
-      _allTransactions = combined;
-      debugPrint("EVM combined: ${combined.length} transactions");
-    } catch (e) {
-      debugPrint("EVM history error: $e");
-      if (mounted) setState(() => _statusMessage = "EVM error: $e");
-    }
+    debugPrint("EVM history fetch bypassed (Moralis removed)");
+    return;
   }
+
+
 
   // ─── BITCOIN via mempool.space ────────────────────────────────────────────
   Future<void> _fetchBitcoinHistory() async {
@@ -407,6 +362,10 @@ class _HistoryTabState extends State<HistoryTab> {
     try {
       final res = await http.get(
         Uri.parse("https://mempool.space/api/address/${widget.address}/txs"),
+        headers: {
+          "Accept": "application/json",
+          "User-Agent": "RiskLens/1.0"
+        },
       );
 
       if (res.statusCode != 200) {
@@ -454,55 +413,7 @@ class _HistoryTabState extends State<HistoryTab> {
 
   // ─── TOKEN PRICES ─────────────────────────────────────────────────────────
   Future<void> _fetchTokenPrices() async {
-    final symbols = _allTransactions
-        .map((tx) => tx['symbol'].toString())
-        .toSet();
-    if (symbols.isEmpty) return;
-
-    const Map<String, String> symbolToId = {
-      "ETH": "ethereum",
-      "SOL": "solana",
-      "BTC": "bitcoin",
-      "MATIC": "matic-network",
-      "BNB": "binancecoin",
-      "USDT": "tether",
-      "USDC": "usd-coin",
-      "DAI": "dai",
-      "WBTC": "wrapped-bitcoin",
-      "LINK": "chainlink",
-      "UNI": "uniswap",
-      "AAVE": "aave",
-      "SHIB": "shiba-inu",
-    };
-
-    final ids = symbols
-        .where((s) => symbolToId.containsKey(s.toUpperCase()))
-        .map((s) => symbolToId[s.toUpperCase()]!)
-        .toSet();
-
-    if (ids.isEmpty) return;
-
-    try {
-      final res = await http.get(
-        Uri.parse(
-          "https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=usd",
-        ),
-        headers: {"x-cg-demo-api-key": _coinGeckoApiKey},
-      );
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final Map<String, double> prices = {};
-        for (var sym in symbols) {
-          final id = symbolToId[sym.toUpperCase()];
-          if (id != null && data[id] != null) {
-            prices[sym] = (data[id]['usd'] as num).toDouble();
-          }
-        }
-        if (mounted) setState(() => _tokenPrices = prices);
-      }
-    } catch (e) {
-      debugPrint("Token price error: $e");
-    }
+    // CoinGecko integration removed as it is no longer used.
   }
 
   // ─── HELPERS ──────────────────────────────────────────────────────────────
@@ -608,12 +519,12 @@ class _HistoryTabState extends State<HistoryTab> {
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF1E1E1E),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20.r)),
       ),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setModal) => Container(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.all(24.r),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -621,12 +532,12 @@ class _HistoryTabState extends State<HistoryTab> {
               Text(
                 "Select Direction",
                 style: GoogleFonts.quicksand(
-                  fontSize: 20,
+                  fontSize: 20.sp,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
                 ),
               ),
-              const SizedBox(height: 16),
+              SizedBox(height: 16.h),
               for (final val in ["All", "Received", "Sent"])
                 ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -663,18 +574,21 @@ class _HistoryTabState extends State<HistoryTab> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Column(
-      children: [
-        _buildFilterRow(isDark),
-        const SizedBox(height: 16),
-        Expanded(
-          child: _isLoading
-              ? _buildLoadingState()
-              : _groupedTransactions.isEmpty
-              ? _buildEmptyState()
-              : _buildTransactionList(isDark),
-        ),
-      ],
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Column(
+        children: [
+          _buildFilterRow(isDark),
+          SizedBox(height: 16.h),
+          Expanded(
+            child: _isLoading
+                ? _buildLoadingState()
+                : _groupedTransactions.isEmpty
+                ? _buildEmptyState()
+                : _buildTransactionList(isDark),
+          ),
+        ],
+      ),
     );
   }
 
@@ -698,7 +612,7 @@ class _HistoryTabState extends State<HistoryTab> {
                 }
               : null,
         ),
-        const SizedBox(width: 12),
+        SizedBox(width: 12.w),
         _buildFilterButton(
           label: _selectedDirection == "All" ? "Direction" : _selectedDirection,
           onTap: _showDirectionPicker,
@@ -730,18 +644,19 @@ class _HistoryTabState extends State<HistoryTab> {
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          padding: EdgeInsets.symmetric(vertical: 12.h, horizontal: 8.w),
           decoration: BoxDecoration(
             color: isSelected
                 ? Colors.blue.withOpacity(0.15)
                 : (isDark
                       ? Colors.white.withOpacity(0.05)
                       : Colors.black.withOpacity(0.05)),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(12.r),
             border: Border.all(
               color: isSelected
                   ? Colors.blue
                   : (isDark ? Colors.white10 : Colors.black12),
+              width: 1.w,
             ),
           ),
           child: Row(
@@ -756,16 +671,16 @@ class _HistoryTabState extends State<HistoryTab> {
                         ? Colors.blue
                         : (isDark ? Colors.white70 : Colors.black87),
                     fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                    fontSize: 13,
+                    fontSize: 13.sp,
                   ),
                 ),
               ),
-              const SizedBox(width: 4),
+              SizedBox(width: 4.w),
               GestureDetector(
                 onTap: onTrailingTap ?? onTap,
                 child: Icon(
                   trailingIcon,
-                  size: 16,
+                  size: 16.w,
                   color: isSelected ? Colors.blue : Colors.grey,
                 ),
               ),
@@ -777,15 +692,24 @@ class _HistoryTabState extends State<HistoryTab> {
   }
 
   Widget _buildLoadingState() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const CircularProgressIndicator(color: Colors.blue),
-          const SizedBox(height: 16),
+          CircularProgressIndicator(
+            color: Colors.blue,
+            strokeWidth: 3,
+            backgroundColor: isDark ? Colors.white10 : Colors.black12,
+          ),
+          SizedBox(height: 24.h),
           Text(
-            _statusMessage,
-            style: const TextStyle(color: Colors.grey, fontSize: 13),
+            _loadingMessages[_loadingStep],
+            style: GoogleFonts.quicksand(
+              color: isDark ? Colors.white : Colors.black,
+              fontSize: 16.sp,
+              fontWeight: FontWeight.w600,
+            ),
             textAlign: TextAlign.center,
           ),
         ],
@@ -802,23 +726,23 @@ class _HistoryTabState extends State<HistoryTab> {
           Icon(
             Icons.history_toggle_off,
             color: Colors.grey.withOpacity(0.5),
-            size: 56,
+            size: 56.w,
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: 16.h),
           Text(
             "No transactions found",
             style: GoogleFonts.quicksand(
               color: isDark ? Colors.white70 : Colors.black54,
-              fontSize: 16,
+              fontSize: 16.sp,
             ),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: 8.h),
           Text(
             _statusMessage,
             textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white24, fontSize: 12),
+            style: TextStyle(color: Colors.white24, fontSize: 12.sp),
           ),
-          const SizedBox(height: 24),
+          SizedBox(height: 24.h),
           TextButton.icon(
             onPressed: _fetchHistory,
             icon: const Icon(Icons.refresh, color: Colors.blue),
@@ -831,7 +755,7 @@ class _HistoryTabState extends State<HistoryTab> {
 
   Widget _buildTransactionList(bool isDark) {
     return ListView.builder(
-      padding: const EdgeInsets.only(bottom: 120),
+      padding: EdgeInsets.only(bottom: 120.h),
       physics: const BouncingScrollPhysics(),
       itemCount: _groupedTransactions.keys.length,
       itemBuilder: (ctx, i) {
@@ -841,12 +765,12 @@ class _HistoryTabState extends State<HistoryTab> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 14),
+              padding: EdgeInsets.symmetric(vertical: 14.h),
               child: Text(
                 dateKey,
                 style: GoogleFonts.quicksand(
                   color: isDark ? Colors.white70 : Colors.black87,
-                  fontSize: 20,
+                  fontSize: 20.sp,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -893,17 +817,18 @@ class _HistoryTabState extends State<HistoryTab> {
     final logoUrl = tokenLogos[sym.toUpperCase()];
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
+      margin: EdgeInsets.only(bottom: 12.h),
+      padding: EdgeInsets.all(16.r),
       decoration: BoxDecoration(
         color: isDark
             ? Colors.white.withOpacity(0.05)
             : Colors.black.withOpacity(0.04),
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(28.r),
         border: Border.all(
           color: isDark
               ? Colors.white.withOpacity(0.06)
               : Colors.black.withOpacity(0.06),
+          width: 1.w,
         ),
       ),
       child: Row(
@@ -913,8 +838,8 @@ class _HistoryTabState extends State<HistoryTab> {
             clipBehavior: Clip.none,
             children: [
               Container(
-                height: 44,
-                width: 44,
+                height: 44.h,
+                width: 44.w,
                 decoration: BoxDecoration(
                   color: (isReceive ? Colors.greenAccent : Colors.blue)
                       .withOpacity(0.12),
@@ -923,7 +848,7 @@ class _HistoryTabState extends State<HistoryTab> {
                 child: Icon(
                   isReceive ? Icons.south_west : Icons.north_east,
                   color: isReceive ? Colors.greenAccent : Colors.blue,
-                  size: 20,
+                  size: 20.w,
                 ),
               ),
               Positioned(
@@ -936,8 +861,8 @@ class _HistoryTabState extends State<HistoryTab> {
                     shape: BoxShape.circle,
                   ),
                   child: Container(
-                    height: 18,
-                    width: 18,
+                    height: 18.h,
+                    width: 18.w,
                     decoration: BoxDecoration(
                       color: isDark
                           ? Colors.white.withOpacity(0.1)
@@ -946,28 +871,28 @@ class _HistoryTabState extends State<HistoryTab> {
                     ),
                     child: logoUrl != null
                         ? ClipRRect(
-                            borderRadius: BorderRadius.circular(9),
+                            borderRadius: BorderRadius.circular(9.r),
                             child: Image.network(
                               logoUrl,
                               fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => const Icon(
+                              errorBuilder: (_, __, ___) => Icon(
                                 Icons.monetization_on,
                                 color: Colors.grey,
-                                size: 10,
+                                size: 10.w,
                               ),
                             ),
                           )
-                        : const Icon(
+                        : Icon(
                             Icons.monetization_on,
                             color: Colors.grey,
-                            size: 10,
+                            size: 10.w,
                           ),
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(width: 14),
+          SizedBox(width: 14.w),
           // Centre
           Expanded(
             child: Column(
@@ -978,25 +903,25 @@ class _HistoryTabState extends State<HistoryTab> {
                   style: GoogleFonts.quicksand(
                     color: isDark ? Colors.white : Colors.black,
                     fontWeight: FontWeight.bold,
-                    fontSize: 18,
+                    fontSize: 18.sp,
                   ),
                 ),
-                const SizedBox(height: 3),
+                SizedBox(height: 3.h),
                 Text(
                   DateFormat('h:mm a').format(tx['timestamp'] as DateTime),
                   style: TextStyle(
                     color: isDark ? Colors.white38 : Colors.black38,
-                    fontSize: 14,
+                    fontSize: 14.sp,
                   ),
                 ),
-                const SizedBox(height: 3),
+                SizedBox(height: 3.h),
                 Text(
                   isReceive
                       ? "From: ${_shortenAddress(tx['from'])}"
                       : "To: ${_shortenAddress(tx['to'])}",
                   style: TextStyle(
                     color: isDark ? Colors.white24 : Colors.black26,
-                    fontSize: 11,
+                    fontSize: 11.sp,
                   ),
                 ),
               ],
@@ -1013,13 +938,13 @@ class _HistoryTabState extends State<HistoryTab> {
                       ? Colors.greenAccent
                       : (isDark ? Colors.white : Colors.black),
                   fontWeight: FontWeight.bold,
-                  fontSize: 16,
+                  fontSize: 16.sp,
                 ),
               ),
-              const SizedBox(height: 4),
+              SizedBox(height: 4.h),
               Text(
                 usdValue != null ? "\$${usdValue.toStringAsFixed(2)}" : "—",
-                style: const TextStyle(color: Colors.grey, fontSize: 14),
+                style: TextStyle(color: Colors.grey, fontSize: 14.sp),
               ),
             ],
           ),

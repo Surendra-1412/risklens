@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 class ScamAlert {
   final String title;
@@ -197,126 +198,139 @@ class _NewsScreenState extends State<NewsScreen> {
     return 'Just now';
   }
 
-  Widget _buildGradientPlaceholder(double size) {
+  Widget _buildGradientPlaceholder(double size, String sourceName) {
+    final isReddit = sourceName.toLowerCase() == 'reddit';
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: Colors.grey.withOpacity(0.2),
-        borderRadius: BorderRadius.circular(16),
+        color: isReddit ? const Color(0xFFFF4500) : Colors.grey.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(16.r),
       ),
       child: Center(
-        child: Icon(Icons.security, color: Colors.grey, size: size * 0.4),
+        child: Icon(
+          isReddit ? Icons.reddit : Icons.security,
+          color: isReddit ? Colors.white : Colors.grey,
+          size: size * 0.4,
+        ),
       ),
     );
   }
 
-  Widget _buildImage(String url, double size) {
+  Widget _buildImage(ScamAlert item, double size) {
+    final url = item.imageUrl;
     if (url.isEmpty || url.contains('cointelegraph')) {
-      return _buildGradientPlaceholder(size);
+      return _buildGradientPlaceholder(size, item.sourceName);
     }
     return Image.network(
       url, 
       fit: BoxFit.cover,
       width: size,
       height: size,
-      errorBuilder: (_,__,___) => _buildGradientPlaceholder(size),
+      errorBuilder: (_,__,___) => _buildGradientPlaceholder(size, item.sourceName),
     );
   }
 
   Widget _buildSkeletonCard(bool isDark) {
     return Container(
-       height: 120,
+       height: 120.h,
        margin: const EdgeInsets.only(bottom: 16),
        decoration: BoxDecoration(
          color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.04), 
-         borderRadius: BorderRadius.circular(24),
+         borderRadius: BorderRadius.circular(24.r),
        ),
     );
   }
 
   Widget _buildNewsCard(ScamAlert item, bool isDark) {
-    return GestureDetector(
-      onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (context) => NewsDetailScreen(item: item)),
-        );
-      },
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
+    return Container(
+      margin: EdgeInsets.only(bottom: 16.h),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withOpacity(0.05)
+            : Colors.black.withOpacity(0.04),
+        borderRadius: BorderRadius.circular(24.r),
+        border: Border.all(
           color: isDark
-              ? Colors.white.withOpacity(0.05)
-              : Colors.black.withOpacity(0.04),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-            color: isDark
-                ? Colors.white.withOpacity(0.1)
-                : Colors.black.withOpacity(0.1),
-          ),
+              ? Colors.white.withOpacity(0.1)
+              : Colors.black.withOpacity(0.1),
         ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(24),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Image on left
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: _buildImage(item.imageUrl, 90),
-                ),
-                const SizedBox(width: 14),
-                // Title and Source
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        item.title,
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.playfairDisplay(
-                          color: isDark ? Colors.white : Colors.black,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                          height: 1.2,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24.r),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (context) => NewsDetailScreen(item: item)),
+                );
+              },
+              splashColor: isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.1),
+              highlightColor: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05),
+              child: Padding(
+                padding: EdgeInsets.all(12.r),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Image on left
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(16.r),
+                      child: _buildImage(item, 90.w),
+                    ),
+                    SizedBox(width: 14.w),
+                    // Title and Source
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Flexible(
-                            child: Text(
-                              item.sourceName.toUpperCase(),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.lato(
-                                color: Colors.blueAccent,
-                                fontWeight: FontWeight.w900,
-                                fontSize: 11,
-                                letterSpacing: 0.5,
-                              ),
+                          Text(
+                            item.title,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.playfairDisplay(
+                              color: isDark ? Colors.white : Colors.black,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16.sp,
+                              height: 1.2,
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Text(
-                            timeAgo(item.timestamp),
-                            style: GoogleFonts.lato(
-                              color: isDark ? Colors.white38 : Colors.black38,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
+                          SizedBox(height: 12.h),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  item.sourceName.toUpperCase(),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.lato(
+                                    color: Colors.blueAccent,
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 11.sp,
+                                    letterSpacing: 0.5.w,
+                                  ),
+                                ),
+                              ),
+                              SizedBox(width: 8.w),
+                              Text(
+                                timeAgo(item.timestamp),
+                                style: GoogleFonts.lato(
+                                  color: isDark ? Colors.white38 : Colors.black38,
+                                  fontSize: 12.sp,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
@@ -332,52 +346,78 @@ class _NewsScreenState extends State<NewsScreen> {
       backgroundColor: isDark
           ? const Color(0xFF121212)
           : const Color(0xFFF5F5F7),
-      appBar: AppBar(
-        title: Text(
-          "Scams & Fraud",
-          style: GoogleFonts.playfairDisplay(
-            fontWeight: FontWeight.w900,
-            fontSize: 24,
-            color: isDark ? Colors.white : Colors.black,
-          ),
+      body: CustomScrollView(
+        physics: const BouncingScrollPhysics(
+          parent: AlwaysScrollableScrollPhysics(),
         ),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        iconTheme: IconThemeData(color: isDark ? Colors.white : Colors.black),
-      ),
-      body: _isLoading
-          ? ListView.builder(
-              padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 40),
-              itemCount: 5,
-              itemBuilder: (context, index) => _buildSkeletonCard(isDark),
+        slivers: [
+          SliverAppBar(
+            floating: true,
+            snap: true,
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            iconTheme: IconThemeData(color: isDark ? Colors.white : Colors.black),
+            title: Container(
+              padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.04),
+                borderRadius: BorderRadius.circular(16.r),
+                border: Border.all(
+                  color: isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.1),
+                  width: 1.w,
+                ),
+              ),
+              child: Text(
+                "Scams & Fraud",
+                style: GoogleFonts.outfit(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 24.sp,
+                  color: isDark ? Colors.white : Colors.black,
+                  letterSpacing: 0.5.w,
+                ),
+              ),
+            ),
+          ),
+          if (_isLoading)
+            SliverPadding(
+              padding: EdgeInsets.only(left: 16.w, right: 16.w, top: 16.h, bottom: 120.h),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) => _buildSkeletonCard(isDark),
+                  childCount: 5,
+                ),
+              ),
             )
-          : _errorMessage.isNotEmpty
-          ? Center(child: Text("Error: $_errorMessage"))
-          : _newsItems.isEmpty
-            ? Center(
+          else if (_errorMessage.isNotEmpty)
+            SliverFillRemaining(
+              child: Center(child: Text("Error: $_errorMessage")),
+            )
+          else if (_newsItems.isEmpty)
+            SliverFillRemaining(
+              child: Center(
                 child: Text(
                   "No active scam alerts right now",
                   style: GoogleFonts.lato(
                     color: isDark ? Colors.white54 : Colors.black54,
-                    fontSize: 16,
+                    fontSize: 16.sp,
                   ),
                 ),
-              )
-            : ListView.builder(
-                padding: const EdgeInsets.only(
-                  left: 16,
-                  right: 16,
-                  top: 16,
-                  bottom: 40,
-                ),
-                physics: const BouncingScrollPhysics(
-                  parent: AlwaysScrollableScrollPhysics(),
-                ),
-                itemCount: _newsItems.length,
-                itemBuilder: (context, index) {
-                  return _buildNewsCard(_newsItems[index], isDark);
-                },
               ),
+            )
+          else
+            SliverPadding(
+              padding: EdgeInsets.only(left: 16.w, right: 16.w, top: 16.h, bottom: 120.h),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    return _buildNewsCard(_newsItems[index], isDark);
+                  },
+                  childCount: _newsItems.length,
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -407,16 +447,22 @@ class NewsDetailScreen extends StatelessWidget {
   }
 
   Widget _buildGradientPlaceholder() {
+    final isReddit = item.sourceName.toLowerCase() == 'reddit';
     return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
+      decoration: BoxDecoration(
+        color: isReddit ? const Color(0xFFFF4500) : null,
+        gradient: isReddit ? null : const LinearGradient(
           colors: [Color(0xFF2C3E50), Color(0xFF000000)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         )
       ),
-      child: const Center(
-        child: Icon(Icons.security, color: Colors.white24, size: 64),
+      child: Center(
+        child: Icon(
+          isReddit ? Icons.reddit : Icons.security,
+          color: isReddit ? Colors.white : Colors.white24,
+          size: 64,
+        ),
       ),
     );
   }
@@ -450,7 +496,7 @@ class NewsDetailScreen extends StatelessWidget {
           children: [
             // Large Header Image with Gradient Overlay
             SizedBox(
-              height: 350,
+              height: 350.h,
               width: double.infinity,
               child: Stack(
                 fit: StackFit.expand,
@@ -482,41 +528,41 @@ class NewsDetailScreen extends StatelessWidget {
             
             // Content Body
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+              padding: EdgeInsets.symmetric(horizontal: 24.w),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Tag
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 6.h),
                     decoration: BoxDecoration(
                       color: Colors.redAccent.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.redAccent.withOpacity(0.3)),
+                      borderRadius: BorderRadius.circular(8.r),
+                      border: Border.all(color: Colors.redAccent.withOpacity(0.3), width: 1.w),
                     ),
                     child: Text(
                       tag.toUpperCase(),
                       style: GoogleFonts.lato(
                         color: Colors.redAccent,
                         fontWeight: FontWeight.w900,
-                        fontSize: 12,
-                        letterSpacing: 1.0,
+                        fontSize: 12.sp,
+                        letterSpacing: 1.0.w,
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  SizedBox(height: 16.h),
                   
                   // Large Bold Title
                   Text(
                     item.title,
                     style: GoogleFonts.playfairDisplay(
                       color: isDark ? Colors.white : Colors.black,
-                      fontSize: 28,
+                      fontSize: 28.sp,
                       fontWeight: FontWeight.w900,
                       height: 1.15,
                     ),
                   ),
-                  const SizedBox(height: 24),
+                  SizedBox(height: 24.h),
                   
                   // Source + Timestamp Row
                   Row(
@@ -526,20 +572,20 @@ class NewsDetailScreen extends StatelessWidget {
                         style: GoogleFonts.lato(
                           color: isDark ? Colors.white70 : Colors.black87,
                           fontWeight: FontWeight.bold,
-                          fontSize: 14,
+                          fontSize: 14.sp,
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      SizedBox(width: 8.w),
                       Text(
                         "•",
                         style: TextStyle(color: isDark ? Colors.white38 : Colors.black38),
                       ),
-                      const SizedBox(width: 8),
+                      SizedBox(width: 8.w),
                       Text(
                         timeAgo(item.timestamp),
                         style: GoogleFonts.lato(
                           color: isDark ? Colors.white54 : Colors.black54,
-                          fontSize: 14,
+                          fontSize: 14.sp,
                         ),
                       ),
                       const Spacer(),
@@ -551,7 +597,7 @@ class NewsDetailScreen extends StatelessWidget {
                           style: GoogleFonts.lato(
                             color: Colors.blueAccent,
                             fontWeight: FontWeight.bold,
-                            fontSize: 16,
+                            fontSize: 16.sp,
                             decoration: TextDecoration.underline,
                             decorationColor: Colors.blueAccent,
                           ),
@@ -560,9 +606,9 @@ class NewsDetailScreen extends StatelessWidget {
                     ],
                   ),
                   
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 24.0),
-                    child: Divider(color: Colors.white12),
+                  Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24.h),
+                    child: Divider(color: Colors.white12, thickness: 1.w),
                   ),
                   
                   // Full Summary
@@ -570,11 +616,11 @@ class NewsDetailScreen extends StatelessWidget {
                     item.summary,
                     style: GoogleFonts.lato(
                       color: isDark ? Colors.white70 : Colors.black87,
-                      fontSize: 18,
+                      fontSize: 18.sp,
                       height: 1.7,
                     ),
                   ),
-                  const SizedBox(height: 60),
+                  SizedBox(height: 60.h),
                 ],
               ),
             ),

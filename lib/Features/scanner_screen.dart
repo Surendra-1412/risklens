@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'ledger_screen.dart';
 
 class ScannerScreen extends StatefulWidget {
@@ -129,11 +130,11 @@ class _ScannerScreenState extends State<ScannerScreen> {
                 ),
                 Center(
                   child: Container(
-                    height: 250,
-                    width: 250,
+                    height: 250.h,
+                    width: 250.w,
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(24.r),
                     ),
                   ),
                 ),
@@ -144,8 +145,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
           // Scanner Border and Animation
           Center(
             child: SizedBox(
-              height: 250,
-              width: 250,
+              height: 250.h,
+              width: 250.w,
               child: CustomPaint(
                 painter: _ScannerCornerPainter(
                   color: _isNavigating
@@ -164,26 +165,26 @@ class _ScannerScreenState extends State<ScannerScreen> {
               right: 0,
               child: Center(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 10,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 24.w,
+                    vertical: 10.h,
                   ),
                   decoration: BoxDecoration(
                     color: Colors.red.withOpacity(0.9),
-                    borderRadius: BorderRadius.circular(30),
+                    borderRadius: BorderRadius.circular(30.r),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withOpacity(0.2),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
+                        blurRadius: 10.r,
+                        offset: Offset(0, 4.h),
                       ),
                     ],
                   ),
-                  child: const Text(
+                  child: Text(
                     "Invalid QR",
                     style: TextStyle(
                       color: Colors.white,
-                      fontSize: 16,
+                      fontSize: 16.sp,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -193,9 +194,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
           // Top Controls
           Positioned(
-            top: 50,
-            left: 20,
-            right: 20,
+            top: 50.h,
+            left: 20.w,
+            right: 20.w,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -221,10 +222,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
                         }
                       },
                     ),
-                    const SizedBox(height: 16),
+                    SizedBox(height: 16.h),
                     _circularButton(
                       icon: Icons.photo_library,
                       onTap: _pickImage,
+                      size: 48.w,
+                      iconSize: 24.w,
                     ),
                   ],
                 ),
@@ -234,16 +237,16 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
           // Bottom Controls & Text
           Positioned(
-            bottom: 60,
+            bottom: 60.h,
             left: 0,
             right: 0,
             child: Column(
               children: [
-                const Text(
+                Text(
                   "Scan any crypto Qr codes",
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: 30,
+                    fontSize: 30.sp, 
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -258,19 +261,21 @@ class _ScannerScreenState extends State<ScannerScreen> {
   Widget _circularButton({
     required IconData icon,
     required VoidCallback onTap,
-    double size = 48,
-    double iconSize = 24,
+    double? size,
+    double? iconSize,
   }) {
+    double btnSize = size ?? 48.w;
+    double iSize = iconSize ?? 24.w;
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        height: size,
-        width: size,
+        height: btnSize,
+        width: btnSize,
         decoration: BoxDecoration(
           color: Colors.white.withOpacity(0.1),
           shape: BoxShape.circle,
         ),
-        child: Icon(icon, color: Colors.white, size: iconSize),
+        child: Icon(icon, color: Colors.white, size: iSize),
       ),
     );
   }
