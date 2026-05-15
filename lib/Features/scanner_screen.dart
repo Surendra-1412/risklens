@@ -114,33 +114,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
             },
           ),
 
-          // Dimmed background with transparent hole
-          ColorFiltered(
-            colorFilter: ColorFilter.mode(
-              Colors.black.withOpacity(0.7),
-              BlendMode.srcOut,
-            ),
-            child: Stack(
-              children: [
-                Container(
-                  decoration: const BoxDecoration(
-                    color: Colors.black,
-                    backgroundBlendMode: BlendMode.dstOut,
-                  ),
-                ),
-                Center(
-                  child: Container(
-                    height: 250.h,
-                    width: 250.w,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(24.r),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          // Removed dimmed background for clearer view
 
           // Scanner Border and Animation
           Center(
@@ -209,8 +183,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
                   children: [
                     _circularButton(
                       icon: _torchState == TorchState.on
-                          ? Icons.flashlight_off
-                          : Icons.flashlight_on,
+                          ? Icons.flashlight_on
+                          : Icons.flashlight_off,
                       onTap: () async {
                         await _controller.toggleTorch();
                         if (mounted) {
@@ -243,7 +217,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
             child: Column(
               children: [
                 Text(
-                  "Scan any crypto Qr codes",
+                  "Scan to track",
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 30.sp, 

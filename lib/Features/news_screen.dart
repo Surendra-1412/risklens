@@ -357,23 +357,21 @@ class _NewsScreenState extends State<NewsScreen> {
             backgroundColor: Colors.transparent,
             elevation: 0,
             iconTheme: IconThemeData(color: isDark ? Colors.white : Colors.black),
-            title: Container(
-              padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
-              decoration: BoxDecoration(
-                color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.04),
-                borderRadius: BorderRadius.circular(16.r),
-                border: Border.all(
-                  color: isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.1),
-                  width: 1.w,
-                ),
-              ),
-              child: Text(
-                "Scams & Fraud",
-                style: GoogleFonts.outfit(
+            title: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text: "Crypto fraud ",
+                    style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                  ),
+                  const TextSpan(
+                    text: "news",
+                    style: TextStyle(color: Colors.blue),
+                  ),
+                ],
+                style: TextStyle(
                   fontWeight: FontWeight.bold,
-                  fontSize: 24.sp,
-                  color: isDark ? Colors.white : Colors.black,
-                  letterSpacing: 0.5.w,
+                  fontSize: 26.sp,
                 ),
               ),
             ),
